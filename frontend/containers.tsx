@@ -567,7 +567,7 @@ function LocalImageEditor({onChange,initial}:{onChange:(value:Action|null)=>void
     {detail.error&&<Notice error>{detail.error.message}</Notice>}
     {config&&config.id===selected&&<>
       <PlatformStatus check={config.platformCheck}/>
-      
+
       <section className="containers-editor"><div className="containers-editor-heading"><h3>{tr("ports")}</h3><ActionIcon icon={mdiPlus} label={tr("addPort")} onClick={()=>setPorts([...ports,{host:"0.0.0.0",container:80,published:8080,protocol:"tcp"}])}/></div>
         {!ports.length&&<p className="muted">{tr("noPorts")}</p>}
         {ports.length>0&&<div className="containers-port-row containers-column-head" aria-hidden="true">{["containerPort","hostPort","protocol","bindAddress"].map(k=><span key={k}>{tr(k)}</span>)}<span/></div>}
@@ -580,7 +580,7 @@ function LocalImageEditor({onChange,initial}:{onChange:(value:Action|null)=>void
         </div>)}
         <label className="field">{tr("webPort")}<select value={ports.some(p=>p.protocol==="tcp"&&p.published===web)?web:0} onChange={e=>setWeb(Number(e.target.value))}><option value={0}>{tr("none")}</option>{Array.from(new Set(ports.filter(p=>p.protocol==="tcp").map(p=>p.published))).map(p=><option key={p} value={p}>{p}</option>)}</select><small>{tr("webHint")}</small></label>
       </section>
-      
+
       <section className="containers-editor"><div className="containers-editor-heading"><h3>{tr("volumesTitle")}</h3><ActionIcon icon={mdiPlus} label={tr("addMount")} onClick={()=>setMounts([...mounts,{source:"",target:"/data",readOnly:false}])}/></div><p className="muted">{tr("anonymousVolumeHint")}</p>
         {mounts.length>0&&<div className="containers-mount-row containers-column-head" aria-hidden="true">{["containerPath","hostFolder","accessMode"].map(k=><span key={k}>{tr(k)}</span>)}<span/></div>}
         {mounts.map((m,i)=><div className="containers-mount-row" key={i}><label className="field"><span className="containers-row-label">{tr("containerPath")}</span><input value={m.target} onChange={e=>mount(i,{target:e.target.value})}/></label><div className="field"><span className="containers-row-label">{tr("hostFolder")}</span><div className="containers-location"><span>{m.source||tr("unmapped")}</span><ActionIcon icon={mdiFolderOutline} label={tr("choose")} onClick={()=>setFolder(i)}/>{m.source&&<ActionIcon icon={mdiDeleteOutline} label={tr("unmap")} onClick={()=>mount(i,{source:""})}/>}</div></div><label className="field"><span className="containers-row-label">{tr("accessMode")}</span><select disabled={!m.source} value={m.readOnly?"ro":"rw"} onChange={e=>mount(i,{readOnly:e.target.value==="ro"})}><option value="rw">{tr("readWrite")}</option><option value="ro">{tr("readOnly")}</option></select></label><ActionIcon icon={mdiDeleteOutline} label={tr("remove")} onClick={()=>setMounts(mounts.filter((_,n)=>n!==i))}/></div>)}
