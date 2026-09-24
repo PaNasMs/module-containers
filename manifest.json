@@ -1,0 +1,30 @@
+{
+  "id": "containers",
+  "title": "Containers and applications",
+  "description": "Docker container management, shared networks and storage settings.",
+  "version": "0.1.1",
+  "api": 1,
+  "core": ">=0.2.7,<0.3.0",
+  "architecture": "arm64",
+  "signer": "panasms-local",
+  "service": "bin/server",
+  "dependencies": {},
+  "packages": {
+    "rsync": "3.2"
+  },
+  "translations": {
+    "en": {
+      "title": "Containers and applications",
+      "description": "Docker containers and Compose projects"
+    },
+    "ru": {
+      "title": "Контейнеры и приложения",
+      "description": "Контейнеры Docker и проекты Compose"
+    },
+    "uk": {
+      "title": "Контейнери та застосунки",
+      "description": "Контейнери Docker і проєкти Compose"
+    }
+  },
+  "license": "PolyForm-Noncommercial-1.0.0"
+}
