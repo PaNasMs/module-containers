@@ -24,6 +24,7 @@ import (
 )
 
 type Job struct {
+	Hidden      bool      `json:"hidden,omitempty"`
 	DisplayName string    `json:"displayName,omitempty"`
 	ID          string    `json:"id"`
 	Action      string    `json:"action"`
@@ -228,9 +229,20 @@ func (e *Engine) Handler(allowed map[string]bool) http.Handler {
 			} else {
 				output(w, 200, results)
 			}
+		case r.URL.Path == "/jobs/clear" && r.Method == "POST":
+			if err := e.clearHistory(); err != nil {
+				failure(w, 500, err)
+			} else {
+				output(w, 200, map[string]bool{"ok": true})
+			}
 		case r.URL.Path == "/jobs" && r.Method == "GET":
 			e.mu.Lock()
-			jobs := append([]Job{}, e.jobs...)
+			jobs := []Job{}
+			for _, job := range e.jobs {
+				if !job.Hidden {
+					jobs = append(jobs, job)
+				}
+			}
 			e.mu.Unlock()
 			output(w, 200, jobs)
 		case r.URL.Path == "/logs" && r.Method == "GET":
@@ -813,4 +825,22 @@ func imageCompose(a Action) ([]byte, error) {
 	}
 	raw, err := json.Marshal(doc)
 	return []byte(strings.ReplaceAll(string(raw), "$", "$$")), err
+}
+
+func (e *Engine) clearHistory() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	jobs := append([]Job{}, e.jobs...)
+	for i := range jobs {
+		switch jobs[i].Status {
+		case "succeeded", "failed", "cancelled", "interrupted":
+			jobs[i].Hidden = true
+		}
+	}
+	if err := atomic(filepath.Join(e.root, "jobs.json"), jobs); err != nil {
+		return err
+	}
+	e.jobs = jobs
+	e.emit()
+	return nil
 }

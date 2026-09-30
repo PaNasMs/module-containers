@@ -1288,7 +1288,7 @@ function ModulePage() {
   if (!Tabs?.Root || !FolderPicker) return <Notice error>{tr("coreUpdateRequired")}</Notice>;
   return <Page/>;
 }
-registerModule({
+const moduleDefinition = {
   id: "containers",
   title: tr("title"),
   path: "/containers",
@@ -1297,6 +1297,11 @@ registerModule({
   component: ModulePage,
   backgroundIndicator: Background,
   tasks: TaskContribution,
+  taskHistory: {
+    queryKey: jobsKey,
+    status: async () => ({ canClear: (await api<Job[]>("jobs")).some(job => ["succeeded", "failed", "cancelled", "interrupted"].includes(job.status)) }),
+    clear: () => api("jobs/clear", {}),
+  },
   settings: [
     {
       id: "containers",
@@ -1306,4 +1311,5 @@ registerModule({
       routes: ["general"],
     },
   ],
-});
+};
+registerModule(moduleDefinition);

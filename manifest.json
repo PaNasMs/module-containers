@@ -2,7 +2,7 @@
   "id": "containers",
   "title": "Containers and applications",
   "description": "Docker container management, shared networks and storage settings.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "api": 1,
   "core": ">=0.2.7,<0.3.0",
   "architecture": "arm64",
@@ -18,12 +18,12 @@
       "description": "Docker containers and Compose projects"
     },
     "ru": {
-      "title": "Контейнеры и приложения",
-      "description": "Контейнеры Docker и проекты Compose"
+      "title": "\u041a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u044b \u0438 \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u044f",
+      "description": "\u041a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u044b Docker \u0438 \u043f\u0440\u043e\u0435\u043a\u0442\u044b Compose"
     },
     "uk": {
-      "title": "Контейнери та застосунки",
-      "description": "Контейнери Docker і проєкти Compose"
+      "title": "\u041a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u0438 \u0442\u0430 \u0437\u0430\u0441\u0442\u043e\u0441\u0443\u043d\u043a\u0438",
+      "description": "\u041a\u043e\u043d\u0442\u0435\u0439\u043d\u0435\u0440\u0438 Docker \u0456 \u043f\u0440\u043e\u0454\u043a\u0442\u0438 Compose"
     }
   },
   "license": "PolyForm-Noncommercial-1.0.0"

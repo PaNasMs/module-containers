@@ -216,3 +216,35 @@ func TestStructuredImageCompose(t *testing.T) {
 		}
 	}
 }
+
+func TestClearHistoryPreservesActiveJobsAndRetryIdentity(t *testing.T) {
+	e := &Engine{root: t.TempDir(), subscribers: map[chan struct{}]bool{}, jobs: []Job{{ID: "active", Status: "running"}, {ID: "pending", Status: "queued"}, {ID: "done", Status: "succeeded", Digest: "preserve"}, {ID: "failed", Status: "failed"}, {ID: "stopped", Status: "interrupted"}}}
+	if err := e.clearHistory(); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.jobs) != 5 || e.jobs[0].Hidden || e.jobs[1].Hidden || !e.jobs[2].Hidden || !e.jobs[3].Hidden || !e.jobs[4].Hidden || e.jobs[2].Digest != "preserve" {
+		t.Fatal(e.jobs)
+	}
+	raw, err := os.ReadFile(filepath.Join(e.root, "jobs.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []Job
+	if err = json.Unmarshal(raw, &saved); err != nil || !saved[2].Hidden {
+		t.Fatal(string(raw), err)
+	}
+	if err = e.clearHistory(); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestClearHistoryWriteFailureKeepsVisibleJobs(t *testing.T) {
+	root := t.TempDir()
+	block := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(block, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	e := &Engine{root: block, jobs: []Job{{ID: "done", Status: "succeeded"}}}
+	if err := e.clearHistory(); err == nil || e.jobs[0].Hidden {
+		t.Fatal("failed write changed history")
+	}
+}
