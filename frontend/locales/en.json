@@ -182,5 +182,6 @@
   "recovery.journal": "Docker setup journal is invalid; review the saved configuration",
   "recovery.guardChanged": "Docker storage guard changed since interrupted setup; no configuration replaced",
   "recovery.guardExists": "Existing Docker storage guard found; no configuration replaced",
-  "recovery.configChanged": "Docker configuration changed since interrupted setup; no configuration replaced"
+  "recovery.configChanged": "Docker configuration changed since interrupted setup; no configuration replaced",
+  "composeUnavailable": "Docker Compose 2.20 or newer is unavailable in configured APT repositories."
 }

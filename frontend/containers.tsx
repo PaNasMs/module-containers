@@ -152,6 +152,8 @@ const phaseLabel = (job: Job) =>
 const problem = (st: State["engine"]) =>
   st.problem.startsWith("Missing components:")
     ? tr("missing", { packages: st.missing.join(", ") })
+    : st.problem === "Installing Docker components" ? tr("phase.packages")
+    : st.problem === en["composeUnavailable"] ? tr("composeUnavailable")
     : st.problem === en["recovery.interrupted"] ? tr("recovery.interrupted") : st.problem;
 const toast = (text: string) =>
   window.dispatchEvent(new CustomEvent("panasms:toast", { detail: text }));
@@ -848,7 +850,7 @@ export function DockerSettings() {
       {picker && (
         <Modal title={tr("newFolder")} close={() => setPicker(false)}>
           <FolderPicker
-            policy="home"
+            policy="data"
             hint={tr("dataHint")}
             newFolder
             defaultName="docker"
