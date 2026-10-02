@@ -34,13 +34,14 @@ import {
 } from "@panasms/ui";
 import { request } from "@panasms/client";
 import { registerModule } from "@panasms/runtime";
-import { registerTranslations, translator } from "@panasms/i18n";
+import { registerTranslations, registerServerMessages, translator } from "@panasms/i18n";
 import en from "./locales/en.json";
 import ru from "./locales/ru.json";
 import uk from "./locales/uk.json";
 import "./containers.css";
 registerTranslations("containers", { en, ru, uk });
 const tr = translator("containers");
+registerServerMessages("containers", Object.entries(en).filter(([key]) => key.startsWith("recovery.")).map(([key, value]) => ({ key, en: value })));
 const api = <T,>(path: string, body?: unknown) =>
   request<T>("module-api/containers/" + path, body ? "POST" : "GET", body);
 type Container = {
@@ -151,7 +152,7 @@ const phaseLabel = (job: Job) =>
 const problem = (st: State["engine"]) =>
   st.problem.startsWith("Missing components:")
     ? tr("missing", { packages: st.missing.join(", ") })
-    : st.problem;
+    : st.problem === en["recovery.interrupted"] ? tr("recovery.interrupted") : st.problem;
 const toast = (text: string) =>
   window.dispatchEvent(new CustomEvent("panasms:toast", { detail: text }));
 function operationID() {
@@ -261,6 +262,7 @@ function Tasks() {
             {actionLabel(j.action)} · {new Date(j.created).toLocaleString()}
           </small>
           {j.status === "running" && <p role="status">{phaseLabel(j)}</p>}
+          {j.status === "succeeded" && j.action.startsWith("storage.") && <p>{j.stage}</p>}
           {j.error && <p className="error-text">{j.error}</p>}
         </article>
       ))}

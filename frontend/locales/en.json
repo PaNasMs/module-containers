@@ -177,5 +177,10 @@
   "discard": "Discard",
   "discardHint": "Your unsaved settings will be lost.",
   "memoryUnavailable": "Docker did not provide memory accounting data.",
-  "coreUpdateRequired": "Update PaNasMs to the latest version to use this module."
+  "coreUpdateRequired": "Update PaNasMs to the latest version to use this module.",
+  "recovery.interrupted": "Docker installation was interrupted. Retry setup to resume the saved configuration.",
+  "recovery.journal": "Docker setup journal is invalid; review the saved configuration",
+  "recovery.guardChanged": "Docker storage guard changed since interrupted setup; no configuration replaced",
+  "recovery.guardExists": "Existing Docker storage guard found; no configuration replaced",
+  "recovery.configChanged": "Docker configuration changed since interrupted setup; no configuration replaced"
 }
