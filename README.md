@@ -78,3 +78,7 @@ this repository. Install the signed archive through the existing module manager.
 Interface work follows the [PaNasMs design standard](https://github.com/PaNasMs/panasms/blob/main/docs/ui-design-guidelines.md).
 
 Tagged releases (vX.Y.Z) build ARM64 payloads in GitHub Actions. The registry imports, signs and publishes these payloads; signing keys never enter this repository.
+
+## Supported architectures
+
+Version 0.1.8 and newer publish separate native `arm64` and `amd64` packages. The module manager selects the compatible package automatically. CI tests both architectures on Ubuntu 24.04 runners before publishing a release. Package creation verifies the server ELF architecture against the manifest. Older ARM64-only releases remain unchanged.
