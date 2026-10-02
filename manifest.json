@@ -2,7 +2,7 @@
   "id": "containers",
   "title": "Containers and applications",
   "description": "Docker container management, shared networks and storage settings.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "api": 1,
   "core": ">=0.2.11,<0.3.0",
   "architecture": "arm64",
@@ -15,16 +15,20 @@
   "translations": {
     "en": {
       "title": "Containers and applications",
-      "description": "Docker containers and Compose projects"
+      "description": "Docker containers and Compose projects",
+      "longDescription": "Run and manage Docker containers on your NAS. Download images from Docker Hub or another registry, choose an image tag and check whether it supports the NAS processor architecture.\n\nCreate containers from downloaded images with forms for published ports, environment variables, storage mappings and networks. Inspect container details, logs and resource use, and start, stop or restart containers. Compose-managed containers are grouped in the list; deployment of arbitrary Compose projects is not exposed in this revision.\n\nContainers with a web interface can have desktop shortcuts and optional path-based proxy access when the application supports it. The module checks Docker Engine and Compose, offers installation of supported missing components and provides settings for moving Docker data. Administration requires an administrator account; an application catalog is not included yet."
     },
     "ru": {
       "title": "Контейнеры и приложения",
-      "description": "Контейнеры Docker и проекты Compose"
+      "description": "Контейнеры Docker и проекты Compose",
+      "longDescription": "Запускайте контейнеры Docker на NAS и управляйте ими. Скачивайте образы из Docker Hub или другого реестра, выбирайте тег и проверяйте совместимость с архитектурой процессора NAS.\n\nСоздавайте контейнеры из скачанных образов через формы настройки портов, переменных окружения, папок и сетей. Просматривайте подробности, журналы и использование ресурсов, запускайте, останавливайте и перезапускайте контейнеры. Контейнеры одного Compose-проекта сгруппированы в списке; развёртывание произвольных Compose-проектов в этой версии скрыто.\n\nДля веб-интерфейса контейнера можно добавить значок на рабочий стол и при поддержке со стороны приложения включить прокси по подпути. Модуль проверяет Docker Engine и Compose, предлагает установить поддерживаемые недостающие компоненты и позволяет перенести данные Docker через настройки. Требуются права администратора; каталога приложений пока нет."
     },
     "uk": {
       "title": "Контейнери та застосунки",
-      "description": "Контейнери Docker і проєкти Compose"
+      "description": "Контейнери Docker і проєкти Compose",
+      "longDescription": "Запускайте контейнери Docker на NAS і керуйте ними. Завантажуйте образи з Docker Hub або іншого реєстру, вибирайте тег і перевіряйте сумісність з архітектурою процесора NAS.\n\nСтворюйте контейнери із завантажених образів через форми налаштування портів, змінних середовища, папок і мереж. Переглядайте подробиці, журнали та використання ресурсів, запускайте, зупиняйте й перезапускайте контейнери. Контейнери одного Compose-проєкту згруповані у списку; розгортання довільних Compose-проєктів у цій версії приховане.\n\nДля вебінтерфейсу контейнера можна додати значок на робочий стіл і за підтримки застосунку ввімкнути проксі через підшлях. Модуль перевіряє Docker Engine та Compose, пропонує встановити підтримувані відсутні компоненти й дозволяє перенести дані Docker через налаштування. Потрібні права адміністратора; каталогу застосунків поки немає."
     }
   },
-  "license": "PolyForm-Noncommercial-1.0.0"
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "longDescription": "Run and manage Docker containers on your NAS. Download images from Docker Hub or another registry, choose an image tag and check whether it supports the NAS processor architecture.\n\nCreate containers from downloaded images with forms for published ports, environment variables, storage mappings and networks. Inspect container details, logs and resource use, and start, stop or restart containers. Compose-managed containers are grouped in the list; deployment of arbitrary Compose projects is not exposed in this revision.\n\nContainers with a web interface can have desktop shortcuts and optional path-based proxy access when the application supports it. The module checks Docker Engine and Compose, offers installation of supported missing components and provides settings for moving Docker data. Administration requires an administrator account; an application catalog is not included yet."
 }
