@@ -29,6 +29,11 @@ administrative access, not a sandbox.
 A fresh install requires an empty dedicated directory on a mounted persistent
 local Linux data filesystem. The Docker service gets a mount dependency so it
 cannot silently write container data to the system disk when that volume is absent.
+For installations created by this module, the classic Docker image store is
+explicitly selected before the Engine starts. Docker 29 otherwise defaults to a
+separate containerd image store outside `data-root`; this would leave images and
+container writable layers on the system disk. Existing installations keep their
+storage driver and are never silently switched between stores.
 Existing Docker configurations remain authoritative and are not migrated automatically.
 The preview requires Docker Engine >=24 and Compose >=2.20. A separate containerd
 snapshotter store and live-restore prevent data migration with an explicit explanation.
@@ -77,7 +82,7 @@ this repository. Install the signed archive through the existing module manager.
 
 Interface work follows the [PaNasMs design standard](https://github.com/PaNasMs/panasms/blob/main/docs/ui-design-guidelines.md).
 
-Tagged releases (vX.Y.Z) build ARM64 payloads in GitHub Actions. The registry imports, signs and publishes these payloads; signing keys never enter this repository.
+Tagged releases (vX.Y.Z) build ARM64 and AMD64 payloads in GitHub Actions. The registry imports, signs and publishes these payloads; signing keys never enter this repository.
 
 ## Supported architectures
 
