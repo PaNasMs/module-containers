@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -49,6 +50,14 @@ func TestSetupCanResumeAfterAptFailure(t *testing.T) {
 		case "apt-get":
 			if args[1] == "--simulate" {
 				return "Inst docker.io (26.1)\n", nil
+			}
+			config, err := os.ReadFile(dockerConfigPath)
+			var settings struct{ Features map[string]bool }
+			if err != nil || json.Unmarshal(config, &settings) != nil {
+				t.Fatal("storage configuration missing before package installation", err)
+			}
+			if enabled, exists := settings.Features["containerd-snapshotter"]; !exists || enabled {
+				t.Fatal("Docker 29 would put image snapshots outside the selected data root")
 			}
 			if failInstall {
 				return "", errors.New("injected APT failure")

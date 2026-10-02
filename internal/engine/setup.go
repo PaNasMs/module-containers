@@ -285,7 +285,7 @@ func (e *Engine) Setup(ctx context.Context, a Action) error {
 		}
 	}
 	if fresh {
-		desired := map[string]any{"data-root": a.Root, "log-driver": "local", "log-opts": map[string]string{"max-size": "10m", "max-file": "3"}}
+		desired := map[string]any{"data-root": a.Root, "features": map[string]bool{"containerd-snapshotter": false}, "log-driver": "local", "log-opts": map[string]string{"max-size": "10m", "max-file": "3"}}
 		unit := "[Unit]\nRequiresMountsFor=" + a.Root + "\nConditionPathIsMountPoint=" + mount + "\n"
 		if resume {
 			if err = verifySetupFile(dockerConfigPath, desired); err != nil {
@@ -312,7 +312,7 @@ func (e *Engine) Setup(ctx context.Context, a Action) error {
 		if err = os.MkdirAll(filepath.Dir(dockerConfigPath), 0755); err != nil {
 			return err
 		}
-		if err = atomic(dockerConfigPath, map[string]any{"data-root": a.Root, "log-driver": "local", "log-opts": map[string]string{"max-size": "10m", "max-file": "3"}}); err != nil {
+		if err = atomic(dockerConfigPath, desired); err != nil {
 			return err
 		}
 		path := filepath.Dir(dockerStorageGuardPath)
