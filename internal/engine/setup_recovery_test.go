@@ -31,9 +31,13 @@ func TestSetupCanResumeAfterAptFailure(t *testing.T) {
 	dockerDefaultRoot = filepath.Join(root, "var/docker")
 	setupMount = func(context.Context, string) (string, error) { return "/srv", nil }
 	ready, failInstall := false, true
+	incompatible := false
 	setupCommand = func(ctx context.Context, dir string, args ...string) (string, error) {
 		switch args[0] {
 		case "dpkg-query":
+			if incompatible && args[len(args)-1] == "podman-docker" {
+				return "installed", nil
+			}
 			return "", errors.New("not installed")
 		case "docker":
 			if ready {
@@ -80,6 +84,11 @@ func TestSetupCanResumeAfterAptFailure(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(root, "setup.json")); err != nil {
 		t.Fatal("recovery journal missing")
 	}
+	incompatible = true
+	if err = e.Setup(context.Background(), action); err == nil || !strings.Contains(err.Error(), "podman-docker") {
+		t.Fatal("retry ignored incompatible installation", err)
+	}
+	incompatible = false
 	failInstall = false
 	if err = e.Setup(context.Background(), action); err != nil {
 		t.Fatal("retry failed", err)

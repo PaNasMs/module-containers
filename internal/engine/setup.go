@@ -50,7 +50,7 @@ func installed(ctx context.Context, p string) bool {
 }
 func (e *Engine) Check(parent context.Context) (c Check) {
 	defer func() {
-		if _, err := os.Stat(filepath.Join(e.root, "setup.json")); err == nil {
+		if _, err := os.Stat(filepath.Join(e.root, "setup.json")); err == nil && (c.Compatible || c.CanStart || c.CanInstall) {
 			c.CanInstall = true
 			c.Problem = "Docker installation was interrupted. Retry setup to resume the saved configuration."
 		}
@@ -216,7 +216,7 @@ func (e *Engine) Setup(ctx context.Context, a Action) error {
 		a.Root = pending.Root
 	}
 	status := e.Check(ctx)
-	if !resume && (!status.CanInstall || len(status.Missing) == 0) {
+	if !status.CanInstall || !resume && len(status.Missing) == 0 {
 		return fmt.Errorf("No automatic installation available: %s", status.Problem)
 	}
 	fresh := resume || !installed(ctx, "docker.io") && !installed(ctx, "docker-ce")
