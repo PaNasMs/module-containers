@@ -27,6 +27,12 @@ type Check struct {
 	Architecture string   `json:"architecture"`
 }
 
+var setupCommand = command
+var setupMount = storageMount
+var dockerConfigPath = "/etc/docker/daemon.json"
+var dockerStorageGuardPath = "/etc/systemd/system/docker.service.d/panasms-storage.conf"
+var dockerDefaultRoot = "/var/lib/docker"
+
 var versionRE = regexp.MustCompile(`v?(\d+)\.(\d+)`)
 
 func atLeast(s string, major, minor int) bool {
@@ -39,13 +45,19 @@ func atLeast(s string, major, minor int) bool {
 	return a > major || a == major && b >= minor
 }
 func installed(ctx context.Context, p string) bool {
-	s, err := command(ctx, "", "dpkg-query", "-W", "-f=${db:Status-Status}", p)
+	s, err := setupCommand(ctx, "", "dpkg-query", "-W", "-f=${db:Status-Status}", p)
 	return err == nil && s == "installed"
 }
-func (e *Engine) Check(parent context.Context) Check {
+func (e *Engine) Check(parent context.Context) (c Check) {
+	defer func() {
+		if _, err := os.Stat(filepath.Join(e.root, "setup.json")); err == nil {
+			c.CanInstall = true
+			c.Problem = "Docker installation was interrupted. Retry setup to resume the saved configuration."
+		}
+	}()
 	ctx, cancel := context.WithTimeout(parent, 8*time.Second)
 	defer cancel()
-	c := Check{Missing: []string{}}
+	c = Check{Missing: []string{}}
 	var v struct {
 		Version    string
 		Os         string
@@ -88,7 +100,7 @@ func (e *Engine) Check(parent context.Context) Check {
 			return c
 		}
 	}
-	compose, composeErr := command(ctx, "", "docker", "compose", "version", "--short")
+	compose, composeErr := setupCommand(ctx, "", "docker", "compose", "version", "--short")
 	if composeErr == nil {
 		c.Compose = strings.TrimSpace(compose)
 		if !atLeast(c.Compose, 2, 20) {
@@ -109,7 +121,7 @@ func (e *Engine) Check(parent context.Context) Check {
 	if len(c.Missing) > 0 {
 		c.CanInstall = true
 		for _, p := range c.Missing {
-			policy, err := command(ctx, "", "apt-cache", "policy", p)
+			policy, err := setupCommand(ctx, "", "apt-cache", "policy", p)
 			if err != nil || !strings.Contains(policy, "Candidate:") || strings.Contains(policy, "Candidate: (none)") {
 				c.CanInstall = false
 				c.Problem = "Required packages are unavailable in configured APT repositories: " + strings.Join(c.Missing, ", ")
@@ -144,7 +156,7 @@ func storageMount(ctx context.Context, root string) (string, error) {
 	if resolved != parent {
 		return "", errors.New("Choose the real storage path, not a symlink")
 	}
-	raw, err := command(ctx, "", "findmnt", "--json", "--target", parent, "--output", "TARGET,SOURCE,FSTYPE,OPTIONS")
+	raw, err := setupCommand(ctx, "", "findmnt", "--json", "--target", parent, "--output", "TARGET,SOURCE,FSTYPE,OPTIONS")
 	if err != nil {
 		return "", err
 	}
@@ -158,7 +170,7 @@ func storageMount(ctx context.Context, root string) (string, error) {
 	if fs.Target == "/" || fs.Target == "/boot" || fs.Target == "/boot/firmware" || !strings.HasPrefix(fs.Source, "/dev/") || !(fs.Fstype == "ext4" || fs.Fstype == "xfs" || fs.Fstype == "btrfs") || !strings.Contains(","+fs.Options+",", ",rw,") {
 		return "", errors.New("Choose a mounted writable local data filesystem, not the system disk or a network share")
 	}
-	fstab, err := command(ctx, "", "findmnt", "--fstab", "--noheadings", "--output", "TARGET")
+	fstab, err := setupCommand(ctx, "", "findmnt", "--fstab", "--noheadings", "--output", "TARGET")
 	if err != nil {
 		return "", err
 	}
@@ -171,7 +183,7 @@ func storageMount(ctx context.Context, root string) (string, error) {
 	if !persist {
 		return "", errors.New("The filesystem must have a persistent mount configured in Storage")
 	}
-	blocks, err := command(ctx, "", "lsblk", "--inverse", "--noheadings", "--output", "RM,TRAN", fs.Source)
+	blocks, err := setupCommand(ctx, "", "lsblk", "--inverse", "--noheadings", "--output", "RM,TRAN", fs.Source)
 	if err != nil {
 		return "", err
 	}
@@ -187,31 +199,47 @@ func storageMount(ctx context.Context, root string) (string, error) {
 	return fs.Target, nil
 }
 func (e *Engine) Setup(ctx context.Context, a Action) error {
+	journal := filepath.Join(e.root, "setup.json")
+	var pending struct {
+		Root  string
+		Mount string
+	}
+	raw, readErr := os.ReadFile(journal)
+	resume := readErr == nil
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return readErr
+	}
+	if resume && (json.Unmarshal(raw, &pending) != nil || pending.Root == "" || pending.Mount == "") {
+		return errors.New("Docker setup journal is invalid; review the saved configuration")
+	}
+	if resume {
+		a.Root = pending.Root
+	}
 	status := e.Check(ctx)
-	if !status.CanInstall || len(status.Missing) == 0 {
+	if !resume && (!status.CanInstall || len(status.Missing) == 0) {
 		return fmt.Errorf("No automatic installation available: %s", status.Problem)
 	}
-	fresh := !installed(ctx, "docker.io") && !installed(ctx, "docker-ce")
+	fresh := resume || !installed(ctx, "docker.io") && !installed(ctx, "docker-ce")
 	mount := ""
 	var err error
 	if fresh {
-		if _, err = os.Stat("/etc/docker/daemon.json"); !os.IsNotExist(err) {
+		if _, err = os.Stat(dockerConfigPath); !resume && !os.IsNotExist(err) {
 			return errors.New("Existing Docker daemon configuration found. Review it before installing; no configuration was replaced")
 		}
-		if entries, err := os.ReadDir("/var/lib/docker"); err == nil && len(entries) > 0 {
+		if entries, err := os.ReadDir(dockerDefaultRoot); !resume && err == nil && len(entries) > 0 {
 			return errors.New("Existing Docker data found. Automatic fresh installation is disabled")
 		}
-		mount, err = storageMount(ctx, a.Root)
+		mount, err = setupMount(ctx, a.Root)
 		if err != nil {
 			return err
 		}
-		if entries, err := os.ReadDir(a.Root); err == nil && len(entries) > 0 {
+		if entries, err := os.ReadDir(a.Root); !resume && err == nil && len(entries) > 0 {
 			return errors.New("Docker data directory must be empty for a new installation")
 		}
 	}
 	e.stage(a.ID, "Checking package changes")
 	args := append([]string{"apt-get", "--simulate", "--no-remove", "install"}, status.Missing...)
-	simulation, err := command(ctx, "", args...)
+	simulation, err := setupCommand(ctx, "", args...)
 	if err != nil {
 		return err
 	}
@@ -224,40 +252,87 @@ func (e *Engine) Setup(ctx context.Context, a Action) error {
 		}
 	}
 	if fresh {
+		desired := map[string]any{"data-root": a.Root, "log-driver": "local", "log-opts": map[string]string{"max-size": "10m", "max-file": "3"}}
+		unit := "[Unit]\nRequiresMountsFor=" + a.Root + "\nConditionPathIsMountPoint=" + mount + "\n"
+		if resume {
+			if err = verifySetupFile(dockerConfigPath, desired); err != nil {
+				return err
+			}
+			if raw, err := os.ReadFile(dockerStorageGuardPath); err == nil && string(raw) != unit {
+				return errors.New("Docker storage guard changed since interrupted setup; no configuration replaced")
+			} else if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		} else {
+			if _, err := os.Lstat(dockerStorageGuardPath); !os.IsNotExist(err) {
+				return errors.New("Existing Docker storage guard found; no configuration replaced")
+			}
+			pending.Root = a.Root
+			pending.Mount = mount
+			if err = atomic(journal, pending); err != nil {
+				return err
+			}
+		}
 		if err = os.MkdirAll(a.Root, 0710); err != nil {
 			return err
 		}
-		if err = os.MkdirAll("/etc/docker", 0755); err != nil {
+		if err = os.MkdirAll(filepath.Dir(dockerConfigPath), 0755); err != nil {
 			return err
 		}
-		if err = atomic("/etc/docker/daemon.json", map[string]any{"data-root": a.Root, "log-driver": "local", "log-opts": map[string]string{"max-size": "10m", "max-file": "3"}}); err != nil {
+		if err = atomic(dockerConfigPath, map[string]any{"data-root": a.Root, "log-driver": "local", "log-opts": map[string]string{"max-size": "10m", "max-file": "3"}}); err != nil {
 			return err
 		}
-		path := "/etc/systemd/system/docker.service.d"
+		path := filepath.Dir(dockerStorageGuardPath)
 		if err = os.MkdirAll(path, 0755); err != nil {
 			return err
 		}
-		unit := "[Unit]\nRequiresMountsFor=" + a.Root + "\nConditionPathIsMountPoint=" + mount + "\n"
-		if err = os.WriteFile(path+"/panasms-storage.conf", []byte(unit), 0644); err != nil {
+		if err = os.WriteFile(dockerStorageGuardPath, []byte(unit), 0644); err != nil {
 			return err
 		}
-		if _, err = command(ctx, "", "systemctl", "daemon-reload"); err != nil {
+		if _, err = setupCommand(ctx, "", "systemctl", "daemon-reload"); err != nil {
 			return err
 		}
 	}
 	e.stage(a.ID, "Installing Docker components")
 	args = append([]string{"apt-get", "-y", "--no-remove", "install"}, status.Missing...)
-	if _, err = command(ctx, "", args...); err != nil {
-		return fmt.Errorf("Package installation failed; any new storage configuration was preserved for review: %w", err)
+	if len(status.Missing) > 0 {
+		if _, err = setupCommand(ctx, "", args...); err != nil {
+			return fmt.Errorf("Package installation failed; retry setup to resume the saved configuration: %w", err)
+		}
 	}
 	if fresh {
-		if _, err = command(ctx, "", "systemctl", "enable", "--now", "docker"); err != nil {
+		if _, err = setupCommand(ctx, "", "systemctl", "enable", "--now", "docker"); err != nil {
 			return err
 		}
 	}
 	status = e.Check(ctx)
 	if !status.Compatible && !status.CanStart {
 		return fmt.Errorf("Components installed but Docker is not ready: %s", status.Problem)
+	}
+	if fresh {
+		if err = os.Remove(journal); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifySetupFile(path string, expected any) error {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var actual any
+	if json.Unmarshal(raw, &actual) != nil {
+		return errors.New("Docker configuration is invalid")
+	}
+	want, _ := json.Marshal(expected)
+	got, _ := json.Marshal(actual)
+	if string(want) != string(got) {
+		return errors.New("Docker configuration changed since interrupted setup; no configuration replaced")
 	}
 	return nil
 }

@@ -3,7 +3,7 @@ module github.com/PaNasMs/module-containers
 go 1.26.0
 
 require (
-	github.com/PaNasMs/module-sdk v0.0.0-20261002093331-8ca09cf8ce82
+	github.com/PaNasMs/module-sdk v0.0.0-20261002131905-21b477cb34f6
 	github.com/coder/websocket v1.8.15
 )
 

@@ -266,3 +266,25 @@ func TestRejectHostPrivilegeEscapes(t *testing.T) {
 		t.Fatal("ordinary data directory rejected", err)
 	}
 }
+
+func TestSetupRetryProtectsModifiedConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "daemon.json")
+	expected := map[string]any{"data-root": "/srv/docker"}
+	if err := verifySetupFile(path, expected); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"data-root":"/srv/docker"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifySetupFile(path, expected); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(path, []byte(`{"data-root":"/srv/changed"}`), 0600)
+	if verifySetupFile(path, expected) == nil {
+		t.Fatal("retry overwrote administrator changes")
+	}
+	os.WriteFile(path, []byte(`broken`), 0600)
+	if verifySetupFile(path, expected) == nil {
+		t.Fatal("invalid configuration accepted")
+	}
+}

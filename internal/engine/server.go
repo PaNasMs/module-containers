@@ -407,6 +407,16 @@ func (e *Engine) submit(a Action) (Job, error) {
 			if e.jobs[i].ID == a.ID {
 				e.jobs[i].Status = "succeeded"
 				e.jobs[i].Stage = "Completed"
+				if err == nil && (a.Action == "storage.move" || a.Action == "storage.recover") {
+					var last Migration
+					if raw, readErr := os.ReadFile(filepath.Join(e.root, "last-migration.json")); readErr == nil && json.Unmarshal(raw, &last) == nil {
+						if last.Phase == "switched" {
+							e.jobs[i].Stage = "Completed; previous Docker data retained at " + last.Old
+						} else {
+							e.jobs[i].Stage = "Docker restored at " + last.Old + "; incomplete copy retained at " + last.New + ". Choose an empty folder before retrying."
+						}
+					}
+				}
 				if err != nil {
 					e.jobs[i].Status = "failed"
 					e.jobs[i].Stage = "Failed"

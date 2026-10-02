@@ -184,6 +184,7 @@ function Background() {
     let ws: WebSocket | undefined;
     let timer: ReturnType<typeof setTimeout>;
     let stopped = false;
+    let delay = 1000;
     const refresh = () => {
       void q.invalidateQueries({ queryKey: jobsKey });
       void q.invalidateQueries({ queryKey: stateKey });
@@ -192,10 +193,14 @@ function Background() {
       ws = new WebSocket(
         `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/api/v1/module-api/containers/events`,
       );
-      ws.onopen = refresh;
+      ws.onopen = () => { delay = 1000; refresh(); };
       ws.onmessage = refresh;
-      ws.onclose = () => {
-        if (!stopped) timer = setTimeout(connect, 3000);
+      ws.onerror = () => ws?.close();
+      ws.onclose = (event) => {
+        if (stopped) return;
+        if (event.code === 1008) { q.clear(); location.assign("/login"); return; }
+        timer = setTimeout(connect, delay);
+        delay = Math.min(delay * 2, 30000);
       };
     };
     connect();
@@ -950,8 +955,10 @@ function ContainerConfiguration({container}:{container:Container}) {
   const q=useQueryClient();
   if(saved.isPending)return <p>{tr("loading")}</p>;
   if(saved.error)return <Notice error>{saved.error.message}</Notice>;
-  const document=JSON.parse(saved.data!.compose);
-  const config=document.services?.[service];
+  let composeDocument: any;
+  try { composeDocument = JSON.parse(saved.data!.compose); }
+  catch { return <Notice error>{tr("configurationUnavailable")}</Notice>; }
+  const config=composeDocument?.services?.[service];
   if(!config)return <Notice error>{tr("configurationUnavailable")}</Notice>;
   const initial:EditorSeed={
     image:container.Image,
@@ -959,7 +966,7 @@ function ContainerConfiguration({container}:{container:Container}) {
     environment:config.environment??{},
     mounts:(config.volumes??[]).map((m:any)=>({source:m.source??"",target:m.target,readOnly:!!m.read_only})),
     webPort:Number(config.labels?.["com.panasms.web-port"])||0,
-    network:document.networks?.["panasms-"+service]?.name??document.networks?.shared?.name??""
+    network:composeDocument.networks?.["panasms-"+service]?.name??composeDocument.networks?.shared?.name??""
   };
   async function save(){
     if(!draft)return;
