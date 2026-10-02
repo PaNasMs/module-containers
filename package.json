@@ -1,7 +1,7 @@
 {
   "name": "@panasms/module-containers",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "type": "module",
   "scripts": {
     "build": "tsc && vite build",
@@ -17,7 +17,7 @@
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
-    "@panasms/module-sdk": "https://github.com/PaNasMs/module-sdk/archive/c9c6336ae64bd2cba86cf5e5f876d3c487e706e6.tar.gz",
+    "@panasms/module-sdk": "https://github.com/PaNasMs/module-sdk/archive/d4ba7879ebc0fa2b05ce43330b68566a7628eb7c.tar.gz",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",

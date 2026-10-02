@@ -84,6 +84,14 @@ func TestSetupCanResumeAfterAptFailure(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(root, "setup.json")); err != nil {
 		t.Fatal("recovery journal missing")
 	}
+	e.jobs = []Job{{Action: "setup", Status: "running"}}
+	if check := e.Check(context.Background()); check.Problem != "Installing Docker components" {
+		t.Fatal("active setup reported interrupted", check)
+	}
+	e.jobs[0].Status = "failed"
+	if check := e.Check(context.Background()); !strings.Contains(check.Problem, "interrupted") {
+		t.Fatal("interrupted setup not reported", check)
+	}
 	incompatible = true
 	if err = e.Setup(context.Background(), action); err == nil || !strings.Contains(err.Error(), "podman-docker") {
 		t.Fatal("retry ignored incompatible installation", err)
@@ -99,5 +107,30 @@ func TestSetupCanResumeAfterAptFailure(t *testing.T) {
 	}
 	if _, err = os.Stat(filepath.Join(root, "setup.json")); !os.IsNotExist(err) {
 		t.Fatal("completed journal retained")
+	}
+}
+
+func TestComposePackageSelection(t *testing.T) {
+	old := setupCommand
+	t.Cleanup(func() { setupCommand = old })
+	for _, tc := range []struct{ v2, legacy, want string }{
+		{"2.40.3", "1.29.2", "docker-compose-v2"},
+		{"(none)", "2.26.1", "docker-compose"},
+		{"(none)", "1.29.2", ""},
+		{"2.19.0", "2.20.0", "docker-compose"},
+	} {
+		setupCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+			v := tc.legacy
+			if args[len(args)-1] == "docker-compose-v2" {
+				v = tc.v2
+			}
+			return "  Candidate: " + v, nil
+		}
+		if got := composePackage(context.Background(), false); got != tc.want {
+			t.Fatalf("%+v: got %q", tc, got)
+		}
+		if got := composePackage(context.Background(), true); got != "docker-compose-plugin" {
+			t.Fatal(got)
+		}
 	}
 }
