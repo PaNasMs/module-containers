@@ -134,7 +134,7 @@ func (e *Engine) move(ctx context.Context, a Action) error {
 	if err = os.MkdirAll(destination, 0710); err != nil {
 		return err
 	}
-	if _, err = command(ctx, "", "rsync", "-aHAXS", "--numeric-ids", "--", source+"/", destination+"/"); err != nil {
+	if _, err = command(ctx, "", "rsync", "-aHAXSx", "--numeric-ids", "--", source+"/", destination+"/"); err != nil {
 		return fmt.Errorf("Transfer failed; original data retained. Use Recover: %w", err)
 	}
 	cfg["data-root"] = destination

@@ -248,3 +248,21 @@ func TestClearHistoryWriteFailureKeepsVisibleJobs(t *testing.T) {
 		t.Fatal("failed write changed history")
 	}
 }
+
+func TestRejectHostPrivilegeEscapes(t *testing.T) {
+	for _, setting := range []string{`"privileged":true`, `"pid":"host"`, `"cap_add":["SYS_ADMIN"]`, `"devices":["/dev/sda:/dev/sda"]`, `"network_mode":"host"`, `"volumes":[{"type":"bind","source":"/etc"}]`, `"volumes":[{"type":"bind","source":"/"}]`} {
+		var config map[string]any
+		json.Unmarshal([]byte(`{"services":{"app":{"image":"nginx",`+setting+`}}}`), &config)
+		if validateCompose(config) == nil {
+			t.Fatal("host privilege accepted", setting)
+		}
+	}
+	link := filepath.Join(t.TempDir(), "system")
+	os.Symlink("/etc", link)
+	if safeBind(link) == nil {
+		t.Fatal("protected symlink accepted")
+	}
+	if err := safeBind(t.TempDir()); err != nil {
+		t.Fatal("ordinary data directory rejected", err)
+	}
+}

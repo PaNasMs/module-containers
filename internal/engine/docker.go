@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -35,7 +36,19 @@ func (d *Docker) Call(ctx context.Context, method, path string, body any, out an
 		return e
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, e := d.Client.Do(req)
+	client := *d.Client
+	if strings.Contains(path, "/stop?") || strings.Contains(path, "/restart?") {
+		parsed, err := url.Parse(path)
+		if err != nil {
+			return err
+		}
+		grace, err := strconv.Atoi(parsed.Query().Get("t"))
+		if err != nil || grace < 0 || grace > 300 {
+			return fmt.Errorf("Invalid container stop timeout")
+		}
+		client.Timeout = time.Duration(grace+15) * time.Second
+	}
+	resp, e := client.Do(req)
 	if e != nil {
 		return fmt.Errorf("Docker Engine unavailable: %w", e)
 	}

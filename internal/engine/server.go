@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/PaNasMs/module-sdk/auth"
+	"github.com/PaNasMs/module-sdk/maintenance"
 	"github.com/coder/websocket"
 	"io"
 	"net"
@@ -527,6 +528,11 @@ func (e *Engine) compose(ctx context.Context, name string, args ...string) error
 	return err
 }
 func (e *Engine) execute(ctx context.Context, a Action) error {
+	release, lockErr := maintenance.Acquire()
+	if lockErr != nil {
+		return lockErr
+	}
+	defer release()
 	e.stage(a.ID, a.Action)
 	if a.Action == "storage.recover" {
 		return e.recoverMove(ctx)
@@ -673,7 +679,14 @@ func (e *Engine) saveProject(ctx context.Context, a Action) error {
 	if err = json.Unmarshal([]byte(raw), &config); err != nil {
 		return errors.New("Cannot parse Compose configuration")
 	}
-	if err = validateCompose(config); err != nil {
+	var dockerInfo struct{ DockerRootDir string }
+	if err = e.docker.Call(ctx, "GET", "/info", nil, &dockerInfo); err != nil {
+		return err
+	}
+	if !filepath.IsAbs(dockerInfo.DockerRootDir) {
+		return errors.New("Docker data directory is unavailable")
+	}
+	if err = validateCompose(config, dockerInfo.DockerRootDir, e.root); err != nil {
 		return err
 	}
 	delete(config, "name")
@@ -691,7 +704,7 @@ func (e *Engine) saveProject(ctx context.Context, a Action) error {
 	e.stage(a.ID, "Downloading images and starting services")
 	return e.compose(ctx, a.Target, "up", "-d", "--wait", "--wait-timeout", "120")
 }
-func validateCompose(config map[string]any) error {
+func validateCompose(config map[string]any, protectedRoots ...string) error {
 	services, ok := config["services"].(map[string]any)
 	if !ok || len(services) == 0 {
 		return errors.New("Compose must contain services")
@@ -700,6 +713,14 @@ func validateCompose(config map[string]any) error {
 		s, ok := value.(map[string]any)
 		if !ok {
 			return errors.New("Invalid service")
+		}
+		for _, key := range []string{"privileged", "pid", "ipc", "uts", "userns_mode", "cgroup_parent", "cap_add", "devices", "device_cgroup_rules", "security_opt", "sysctls", "runtime", "volumes_from"} {
+			if value, ok := s[key]; ok && value != nil && fmt.Sprint(value) != "false" && fmt.Sprint(value) != "" && fmt.Sprint(value) != "[]" {
+				return fmt.Errorf("%s: %s requires host-level privileges and is not supported by the panel", name, key)
+			}
+		}
+		if mode, _ := s["network_mode"].(string); mode != "" && mode != "bridge" && mode != "none" {
+			return fmt.Errorf("%s: host/container network namespaces are not supported", name)
 		}
 		if s["build"] != nil {
 			return fmt.Errorf("%s: image builds are not supported in this preview; use a published image", name)
@@ -715,9 +736,21 @@ func validateCompose(config map[string]any) error {
 					if !filepath.IsAbs(source) || strings.Contains(source, "/.draft-") {
 						return fmt.Errorf("%s: bind mounts must use existing absolute host paths", name)
 					}
+					if err := safeBind(source, protectedRoots...); err != nil {
+						return fmt.Errorf("%s: %w", name, err)
+					}
 					if _, err := os.Stat(source); err != nil {
 						return fmt.Errorf("Host path unavailable: %s", source)
 					}
+				}
+			}
+		}
+	}
+	if volumes, ok := config["volumes"].(map[string]any); ok {
+		for name, value := range volumes {
+			if volume, ok := value.(map[string]any); ok {
+				if volume["driver_opts"] != nil || (volume["driver"] != nil && volume["driver"] != "local") {
+					return fmt.Errorf("%s: custom volume drivers/options are not supported", name)
 				}
 			}
 		}
@@ -734,6 +767,21 @@ func validateCompose(config map[string]any) error {
 	}
 	return nil
 }
+func safeBind(source string, protectedRoots ...string) error {
+	resolved, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		return err
+	}
+	resolved = filepath.Clean(resolved)
+	protectedRoots = append(protectedRoots, "/var/lib/panasms-cloud-sync", "/var/lib/panasms-containers")
+	for _, protected := range append(protectedRoots, []string{"/etc", "/proc", "/sys", "/dev", "/run", "/boot", "/usr", "/root", "/var/lib/docker", "/var/lib/panasms", "/var/lib/panasms-agent", "/var/lib/panasms-modules", "/var/lib/panasms-updates"}...) {
+		if resolved == protected || strings.HasPrefix(resolved, protected+"/") || resolved == "/" || strings.HasPrefix(protected, resolved+"/") {
+			return fmt.Errorf("Host system path cannot be mounted into a container: %s", source)
+		}
+	}
+	return nil
+}
+
 func imageCompose(a Action) ([]byte, error) {
 	if err := validImage(a.Image); err != nil {
 		return nil, err
