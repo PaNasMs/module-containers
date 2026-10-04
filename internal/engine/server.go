@@ -664,6 +664,9 @@ func (e *Engine) saveProject(ctx context.Context, a Action) error {
 		if err != nil {
 			return err
 		}
+		if err = portsFree(a.Ports); err != nil {
+			return err
+		}
 		a.Compose = string(raw)
 	}
 	if strings.TrimSpace(a.Compose) == "" {
@@ -787,6 +790,34 @@ func safeBind(source string, protectedRoots ...string) error {
 	for _, protected := range append(protectedRoots, []string{"/etc", "/proc", "/sys", "/dev", "/run", "/boot", "/usr", "/root", "/var/lib/docker", "/var/lib/panasms", "/var/lib/panasms-agent", "/var/lib/panasms-modules", "/var/lib/panasms-updates"}...) {
 		if resolved == protected || strings.HasPrefix(resolved, protected+"/") || resolved == "/" || strings.HasPrefix(protected, resolved+"/") {
 			return fmt.Errorf("Host system path cannot be mounted into a container: %s", source)
+		}
+	}
+	return nil
+}
+
+// portsFree refuses a new container whose NAS ports are already taken, before
+// Compose creates anything: a failed start would leave a half-created project.
+func portsFree(ports []Binding) error {
+	for _, p := range ports {
+		host := p.Host
+		if host == "" {
+			host = "0.0.0.0"
+		}
+		address := net.JoinHostPort(host, fmt.Sprint(p.Published))
+		var err error
+		if p.Protocol == "udp" {
+			var c net.PacketConn
+			if c, err = net.ListenPacket("udp", address); err == nil {
+				c.Close()
+			}
+		} else {
+			var l net.Listener
+			if l, err = net.Listen("tcp", address); err == nil {
+				l.Close()
+			}
+		}
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return fmt.Errorf("NAS port %d/%s is already in use. Choose another NAS port.", p.Published, p.Protocol)
 		}
 	}
 	return nil

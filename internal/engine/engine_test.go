@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -286,5 +287,21 @@ func TestSetupRetryProtectsModifiedConfiguration(t *testing.T) {
 	os.WriteFile(path, []byte(`broken`), 0600)
 	if verifySetupFile(path, expected) == nil {
 		t.Fatal("invalid configuration accepted")
+	}
+}
+
+func TestPortsFreeReportsTakenPort(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	taken := []Binding{{Host: "127.0.0.1", Container: 80, Published: port, Protocol: "tcp"}}
+	if err = portsFree(taken); err == nil || !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("taken port accepted: %v", err)
+	}
+	l.Close()
+	if err = portsFree(taken); err != nil {
+		t.Fatalf("free port refused: %v", err)
 	}
 }
