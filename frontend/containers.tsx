@@ -23,6 +23,10 @@ import {
   mdiLoading,
   mdiCheckCircleOutline,
   mdiAlertCircleOutline,
+  mdiLayersOutline,
+  mdiLan,
+  mdiDatabaseOutline,
+  mdiFormatListChecks,
 } from "@mdi/js";
 import {
   Button,
@@ -31,6 +35,7 @@ import {
   DialogContent,
   FolderPicker,
   bytes,
+  SectionNav,
 } from "@panasms/ui";
 import { request } from "@panasms/client";
 import { registerModule } from "@panasms/runtime";
@@ -914,9 +919,10 @@ function ContainerPage({id,view,controls}:{id:string;view:string;controls:(type:
   const io=(stats.data?.blkio_stats?.io_service_bytes_recursive??[]) as {op:string;value:number}[];
   return <div className="containers-module container-detail-page">
     <Link to="/containers/containers" className="container-back">← {tr("containers")}</Link>
-    <div className="page-heading"><div><h2 className="container-detail-title">{name}</h2><p className="muted">{image} · {container?tr(container.State):tr("loading")}</p></div>{container&&controls(single?"project":"container",single?project!:id,name,container.State==="running",["running","restarting"].includes(container.State))}</div>
-    <nav className="tabs container-inner-tabs" aria-label={tr("details")}>{tabs.map(tab=><Link key={tab} aria-current={active===tab?"page":undefined} data-state={active===tab?"active":"inactive"} to={`/containers/containers/${id}/${tab}`}>{tr(tab)}</Link>)}</nav>
-    <div className="container-detail-body">
+    <div className="page-heading detail"><div><h1 className="container-detail-title">{name}</h1><p className="muted">{image} · {container?tr(container.State):tr("loading")}</p></div>{container&&controls(single?"project":"container",single?project!:id,name,container.State==="running",["running","restarting"].includes(container.State))}</div>
+    <div className="section-layout">
+    <SectionNav label={name} value={active} items={tabs.map(tab=>({id:tab,title:tr(tab),to:`/containers/containers/${id}/${tab}`,icon:{details:mdiInformationOutline,logs:mdiTextBoxOutline,configuration:mdiCogOutline}[tab]}))}/>
+    <div className="container-detail-body surface">
     {active==="details"&&(detail.isPending?<p>{tr("loading")}</p>:detail.error?<Notice error>{detail.error.message}</Notice>:data&&<>
       <dl className="container-facts">{[
         ["status",tr(data.State?.Status??"unknown")],["containerID",id.slice(0,12)],["createdAt",new Date(data.Created).toLocaleString()],["restartCount",String(data.RestartCount??0)],["restartPolicy",data.HostConfig?.RestartPolicy?.Name||"—"]
@@ -935,6 +941,7 @@ function ContainerPage({id,view,controls}:{id:string;view:string;controls:(type:
     </>)}
     {active==="logs"&&(logs.error?<Notice error>{logs.error.message}</Notice>:<pre className="container-log" tabIndex={0}>{logs.data?.text||tr(logs.isPending?"loading":"empty")}</pre>)}
     {active==="configuration"&&container&&<ContainerConfiguration key={id} container={container}/>}
+    </div>
     </div>
 
   </div>;
@@ -1185,16 +1192,19 @@ function Page() {
           <Link to="/settings/containers/general">{tr("recoverHint")}</Link>
         </Notice>
       )}
-      <Tabs.Root value={tab} onValueChange={(value) => navigate("/containers/" + value)} activationMode="manual" orientation="vertical" className="settings-layout settings-page">
-        <Tabs.List className="settings-nav" aria-label={tr("title")}>
-          {["containers", "images", "networks", "volumes", "tasks"].map(
-            (t) => (
-              <Tabs.Trigger key={t} value={t}>
-                {tr(t)}
-              </Tabs.Trigger>
-            ),
-          )}
-        </Tabs.List>
+      <Tabs.Root value={tab} onValueChange={(value) => navigate("/containers/" + value)} activationMode="manual" orientation="vertical" className="section-layout settings-page">
+        <SectionNav
+          label={tr("title")}
+          value={tab}
+          onChange={(value) => navigate("/containers/" + value)}
+          items={[
+            { id: "containers", title: tr("containers"), icon: mdiDocker },
+            { id: "images", title: tr("images"), icon: mdiLayersOutline },
+            { id: "networks", title: tr("networks"), icon: mdiLan },
+            { id: "volumes", title: tr("volumes"), icon: mdiDatabaseOutline },
+            { id: "tasks", title: tr("tasks"), icon: mdiFormatListChecks },
+          ]}
+        />
         <Tabs.Content key={tab} value={tab} className="settings-content">
           {state.isPending ? (
             <p role="status">{tr("loading")}</p>
