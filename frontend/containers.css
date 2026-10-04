@@ -271,5 +271,9 @@
   .containers-module .container-collection tbody > tr > :is(th, td),
   .containers-table-wrap :is(th, td) { padding: 3px 0; border: 0; text-align: left; }
   .container-row-actions > .containers-actions { justify-content: flex-start; flex-wrap: wrap; }
+  /* The shell copies each column header into data-label; show it in a left gutter. */
+  .containers-table-wrap td[data-label] { position: relative; min-height: 1.75rem; padding-left: calc(40% + 12px) !important; }
+  .containers-table-wrap td[data-label]::before { content: attr(data-label); position: absolute; left: 0; top: 3px; width: 40%; color: var(--mute); font-weight: 500; overflow-wrap: anywhere; }
+  .containers-table-wrap th[scope="row"] { font-weight: 700; }
 }
 .page-heading .container-back { display: flex; margin: 0; color: var(--mute); font-weight: 600; }
