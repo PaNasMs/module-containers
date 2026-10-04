@@ -281,3 +281,15 @@
 .container-detail-page .container-facts { grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); }
 @media(max-width:1250px) { .container-detail-page .container-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:700px) { .container-detail-page .container-metrics { grid-template-columns:1fr; } }
+/* Below 640px the container tables become lists: one block per row, no sideways scrolling. */
+@media (max-width: 639px) {
+  .container-collection table { min-width: 0; table-layout: auto; }
+  .containers-table-wrap thead { display: none; }
+  .containers-table-wrap :is(table, tbody, tr, th, td) { display: block; width: auto !important; }
+  .containers-table-wrap tr { padding: 12px 0; border-top: 1px solid var(--line); }
+  .containers-table-wrap tr:first-child { border-top: 0; }
+  .containers-module .container-collection tbody > tr > :is(th, td),
+  .containers-table-wrap :is(th, td) { padding: 3px 0; border: 0; text-align: left; }
+  .container-row-actions > .containers-actions { justify-content: flex-start; flex-wrap: wrap; }
+}
+.page-heading .container-back { display: flex; margin: 0; color: var(--mute); font-weight: 600; }

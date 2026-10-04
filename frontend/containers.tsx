@@ -918,8 +918,7 @@ function ContainerPage({id,view,controls}:{id:string;view:string;controls:(type:
   const net=Object.values(stats.data?.networks??{}) as {rx_bytes:number;tx_bytes:number}[];
   const io=(stats.data?.blkio_stats?.io_service_bytes_recursive??[]) as {op:string;value:number}[];
   return <div className="containers-module container-detail-page">
-    <Link to="/containers/containers" className="container-back">← {tr("containers")}</Link>
-    <div className="page-heading detail"><div><h1 className="container-detail-title">{name}</h1><p className="muted">{image} · {container?tr(container.State):tr("loading")}</p></div>{container&&controls(single?"project":"container",single?project!:id,name,container.State==="running",["running","restarting"].includes(container.State))}</div>
+    <div className="page-heading detail"><div><Link to="/containers/containers" className="container-back">← {tr("containers")}</Link><h1 className="container-detail-title">{name}</h1><p className="muted">{image} · {container?tr(container.State):tr("loading")}</p></div>{container&&controls(single?"project":"container",single?project!:id,name,container.State==="running",["running","restarting"].includes(container.State))}</div>
     <div className="section-layout">
     <SectionNav label={name} value={active} items={tabs.map(tab=>({id:tab,title:tr(tab),to:`/containers/containers/${id}/${tab}`,icon:{details:mdiInformationOutline,logs:mdiTextBoxOutline,configuration:mdiCogOutline}[tab]}))}/>
     <div className="container-detail-body surface">
