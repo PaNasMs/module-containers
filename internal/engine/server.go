@@ -11,7 +11,6 @@ import (
 	"github.com/PaNasMs/module-sdk/maintenance"
 	"github.com/coder/websocket"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -193,11 +192,12 @@ func (e *Engine) Handler(allowed map[string]bool) http.Handler {
 				failure(w, 400, err)
 				return
 			}
+			proposeDefaults(result.Ports)
 			output(w, 200, result)
 		case r.URL.Path == "/images/platform" && r.Method == "GET":
 			reference := r.URL.Query().Get("image")
 			if validImage(reference) != nil || strings.Contains(reference, "?") || strings.Contains(reference, "#") {
-				failure(w, 400, errors.New("Invalid image reference"))
+				failure(w, 400, errors.New(msgImageReference))
 				return
 			}
 			result, err := e.docker.RemotePlatform(ctx, reference)
@@ -297,16 +297,27 @@ func (e *Engine) Handler(allowed map[string]bool) http.Handler {
 			} else {
 				output(w, 200, map[string]string{"compose": string(raw)})
 			}
-		case r.URL.Path == "/action" && r.Method == "POST":
-			var a Action
-			dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10))
-			dec.DisallowUnknownFields()
-			if err := dec.Decode(&a); err != nil {
-				failure(w, 400, errors.New("Invalid action"))
+		case r.URL.Path == "/ports/check" && r.Method == "POST":
+			var body struct {
+				Ports []Binding `json:"ports"`
+			}
+			if !decode(w, r, &body) {
 				return
 			}
-			if dec.Decode(new(any)) != io.EOF {
-				failure(w, 400, errors.New("Invalid trailing data"))
+			if len(body.Ports) > 32 {
+				failure(w, 400, errors.New("Too many port mappings"))
+				return
+			}
+			output(w, 200, map[string]any{"ports": probePorts(body.Ports)})
+		case r.URL.Path == "/action/check" && r.Method == "POST":
+			var a Action
+			if !decode(w, r, &a) {
+				return
+			}
+			output(w, 200, map[string]any{"problems": e.preflight(ctx, a)})
+		case r.URL.Path == "/action" && r.Method == "POST":
+			var a Action
+			if !decode(w, r, &a) {
 				return
 			}
 			job, err := e.submit(a)
@@ -319,6 +330,36 @@ func (e *Engine) Handler(allowed map[string]bool) http.Handler {
 			failure(w, 404, errors.New("Not found"))
 		}
 	})
+}
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		failure(w, 400, errors.New("Invalid action"))
+		return false
+	}
+	if dec.Decode(new(any)) != io.EOF {
+		failure(w, 400, errors.New("Invalid trailing data"))
+		return false
+	}
+	return true
+}
+
+// admit returns the job already accepted under this identifier (a repeated
+// request) or the reason a new one cannot start. The caller holds e.mu.
+func (e *Engine) admit(id, digest string) (Job, bool, error) {
+	for _, j := range e.jobs {
+		if j.ID == id {
+			if j.Digest != "" && j.Digest != digest {
+				return Job{}, false, errors.New("Operation identifier already used")
+			}
+			return j, true, nil
+		}
+	}
+	if e.busy {
+		return Job{}, false, errors.New(msgBusy)
+	}
+	return Job{}, false, nil
 }
 func (e *Engine) events(w http.ResponseWriter, r *http.Request) {
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
@@ -359,7 +400,7 @@ func (e *Engine) submit(a Action) (Job, error) {
 	}
 	if strings.HasPrefix(a.Action, "project.") || a.Action == "image.create" || a.Action == "network.create" || a.Action == "volume.create" {
 		if !nameRE.MatchString(a.Target) {
-			return Job{}, errors.New("Use a lowercase name, 2–48 letters, digits, hyphens or underscores")
+			return Job{}, errors.New(msgNameRule)
 		}
 	}
 	if a.Action == "image.create" || a.Action == "image.pull" {
@@ -374,17 +415,21 @@ func (e *Engine) submit(a Action) (Job, error) {
 	sum := sha256.Sum256(raw)
 	digest := hex.EncodeToString(sum[:])
 	e.mu.Lock()
-	defer e.mu.Unlock()
-	for _, j := range e.jobs {
-		if j.ID == a.ID {
-			if j.Digest != "" && j.Digest != digest {
-				return Job{}, errors.New("Operation identifier already used")
-			}
-			return j, nil
-		}
+	known, found, err := e.admit(a.ID, digest)
+	e.mu.Unlock()
+	if found || err != nil {
+		return known, err
 	}
-	if e.busy {
-		return Job{}, errors.New("Another operation is running. Wait for it to finish.")
+	// Refuse what the form can correct before a job exists. This runs after the
+	// repeated-request check: a retry of an accepted creation must return its
+	// job rather than "project already exists".
+	if problems := e.preflight(context.Background(), a); len(problems) > 0 {
+		return Job{}, errors.New(problems[0].Error)
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if known, found, err = e.admit(a.ID, digest); found || err != nil {
+		return known, err
 	}
 	j := Job{DisplayName: a.DisplayName, ID: a.ID, Action: a.Action, Target: a.Target, Status: "running", Stage: "Preparing", Created: time.Now(), Updated: time.Now(), Digest: digest}
 	e.jobs = append(e.jobs, j)
@@ -628,13 +673,13 @@ func (e *Engine) execute(ctx context.Context, a Action) error {
 }
 func validImage(s string) error {
 	if s == "" || len(s) > 256 || strings.HasPrefix(s, "-") || strings.ContainsAny(s, " \t\r\n") {
-		return errors.New("Invalid image reference")
+		return errors.New(msgImageReference)
 	}
 	return nil
 }
 func (e *Engine) saveProject(ctx context.Context, a Action) error {
 	if !nameRE.MatchString(a.Target) {
-		return errors.New("Use a lowercase project name, 2–48 letters, digits, hyphens or underscores")
+		return errors.New(msgProjectNameRule)
 	}
 	dir := filepath.Join(e.root, "projects", a.Target)
 	_, statErr := os.Stat(dir)
@@ -644,7 +689,7 @@ func (e *Engine) saveProject(ctx context.Context, a Action) error {
 	}
 	for _, c := range existing {
 		if c.Labels["com.docker.compose.project"] == a.Target && os.IsNotExist(statErr) {
-			return errors.New("A Compose project with this name already exists outside this module")
+			return errors.New(msgExternalProject)
 		}
 	}
 	if a.Action == "image.create" {
@@ -653,12 +698,12 @@ func (e *Engine) saveProject(ctx context.Context, a Action) error {
 			return err
 		}
 		if detail.PlatformCheck.Status != "compatible" {
-			return errors.New("Local image architecture is incompatible or could not be verified")
+			return errors.New(msgImageIncompatible)
 		}
 		a.Image = detail.ID
 
 		if statErr == nil {
-			return errors.New("Project already exists")
+			return errors.New(msgProjectExists)
 		}
 		raw, err := imageCompose(a)
 		if err != nil {
@@ -799,25 +844,8 @@ func safeBind(source string, protectedRoots ...string) error {
 // Compose creates anything: a failed start would leave a half-created project.
 func portsFree(ports []Binding) error {
 	for _, p := range ports {
-		host := p.Host
-		if host == "" {
-			host = "0.0.0.0"
-		}
-		address := net.JoinHostPort(host, fmt.Sprint(p.Published))
-		var err error
-		if p.Protocol == "udp" {
-			var c net.PacketConn
-			if c, err = net.ListenPacket("udp", address); err == nil {
-				c.Close()
-			}
-		} else {
-			var l net.Listener
-			if l, err = net.Listen("tcp", address); err == nil {
-				l.Close()
-			}
-		}
-		if errors.Is(err, syscall.EADDRINUSE) {
-			return fmt.Errorf("NAS port %d/%s is already in use. Choose another NAS port.", p.Published, p.Protocol)
+		if portTaken(p.Host, p.Published, p.Protocol) {
+			return fmt.Errorf(msgPortInUse, p.Published, p.Protocol)
 		}
 	}
 	return nil
@@ -836,20 +864,17 @@ func imageCompose(a Action) ([]byte, error) {
 			}
 		}
 		if !found {
-			return nil, errors.New("Web interface port must match a published TCP port")
+			return nil, errors.New(msgWebPort)
 		}
 		s["labels"] = map[string]string{"com.panasms.web-port": fmt.Sprint(a.WebPort)}
 	}
 	ports := []map[string]any{}
 	for _, p := range a.Ports {
-		if p.Container < 1 || p.Container > 65535 || p.Published < 1 || p.Published > 65535 || (p.Protocol != "tcp" && p.Protocol != "udp") {
-			return nil, errors.New("Invalid port mapping")
+		if err := validBinding(p); err != nil {
+			return nil, err
 		}
 		if p.Host == "" {
 			p.Host = "0.0.0.0"
-		}
-		if net.ParseIP(p.Host) == nil {
-			return nil, errors.New("Invalid host bind address")
 		}
 		ports = append(ports, map[string]any{"target": p.Container, "published": fmt.Sprint(p.Published), "host_ip": p.Host, "protocol": p.Protocol})
 	}
@@ -863,13 +888,13 @@ func imageCompose(a Action) ([]byte, error) {
 		}
 		k, v, ok := strings.Cut(l, "=")
 		if !ok || k == "" {
-			return nil, errors.New("Environment variables must use NAME=value")
+			return nil, errors.New(msgEnvFormat)
 		}
 		env[k] = v
 	}
 	for key, value := range a.Environment {
 		if key == "" || strings.ContainsAny(key, "=\x00") || strings.ContainsRune(value, 0) {
-			return nil, errors.New("Invalid environment variable")
+			return nil, errors.New(msgEnvInvalid)
 		}
 		env[key] = value
 	}
@@ -879,16 +904,16 @@ func imageCompose(a Action) ([]byte, error) {
 	volumes := []map[string]any{}
 	for _, m := range a.Mounts {
 		if !filepath.IsAbs(m.Target) || m.Target == "/" {
-			return nil, errors.New("Container mount path must be absolute and not root")
+			return nil, errors.New(msgMountPath)
 		}
 		kind := "volume"
 		if filepath.IsAbs(m.Source) {
 			kind = "bind"
 			if _, err := os.Stat(m.Source); err != nil {
-				return nil, fmt.Errorf("Host folder unavailable: %s", m.Source)
+				return nil, fmt.Errorf(msgHostFolder, m.Source)
 			}
 		} else if !nameRE.MatchString(m.Source) {
-			return nil, errors.New("Invalid volume name")
+			return nil, errors.New(msgVolumeName)
 		}
 		volumes = append(volumes, map[string]any{"type": kind, "source": m.Source, "target": m.Target, "read_only": m.ReadOnly})
 	}
@@ -907,7 +932,7 @@ func imageCompose(a Action) ([]byte, error) {
 	}
 	if a.Network != "" {
 		if !nameRE.MatchString(a.Network) {
-			return nil, errors.New("Invalid network name")
+			return nil, errors.New(msgNetworkName)
 		}
 		s["networks"] = []string{"shared"}
 		doc["networks"] = map[string]any{"shared": map[string]any{"external": true, "name": a.Network}}

@@ -277,3 +277,11 @@
   .containers-table-wrap th[scope="row"] { font-weight: 700; }
 }
 .page-heading .container-back { display: flex; margin: 0; color: var(--mute); font-weight: 600; }
+
+/* Create-form feedback: a note under its port row, the error summary and the failed-creation notice. */
+.containers-port-entry { display:grid; gap:4px; min-width:0; }
+.containers-editor .error-text { color:var(--danger); }
+.containers-port-note { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.containers-problems:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:var(--radius-sm); }
+.containers-problems ul { margin:4px 0 0; padding-left:1.25rem; }
+.containers-create-failed { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; }
