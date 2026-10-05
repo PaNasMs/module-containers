@@ -53,9 +53,21 @@ Compose projects. Those projects are displayed but their source files are not
 rewritten. Container console, private-registry credential UI, desktop app shortcuts
 and optional web reverse-proxy configuration remain follow-up work.
 An optional web-interface port adds a convenience link; the module does not
-assume every published port is an HTTP service. Port conflicts are reported by Docker and leave a failed
-operation for inspection. Default image port mappings publish declared ports on
+assume every published port is an HTTP service. Default image port mappings publish declared ports on
 all IPv4 interfaces using the protocols declared by the image; mappings can be removed or edited.
+
+Creating a container from an image is checked before a background operation
+exists: name, image, port mappings, NAS port availability and the web port. The
+form stays open and shows each issue beside its field (`POST action/check`;
+`POST action` repeats the check and answers 409). The operation checks again,
+because the NAS can change in between; a failure at that stage is shown on the
+module page with a way to reopen the form with the entered values, and in Tasks.
+A default NAS port keeps the container port number when that is free; otherwise
+the form proposes the next free port from container port + 8000 and says so.
+`POST ports/check` flags a taken NAS port while the mapping is edited. A port is
+probed by binding it on the requested address and closing it at once, at most
+eight candidates per mapping. User-correctable backend messages are translated
+through the `server.*` locale keys; a Go test fails when one has no entry.
 
 Configuration and history live in `/var/lib/panasms-containers` (root-only).
 Resolved Compose environment values are stored in root-only files; do not put them

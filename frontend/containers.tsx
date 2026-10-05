@@ -46,7 +46,7 @@ import uk from "./locales/uk.json";
 import "./containers.css";
 registerTranslations("containers", { en, ru, uk });
 const tr = translator("containers");
-registerServerMessages("containers", Object.entries(en).filter(([key]) => key.startsWith("recovery.")).map(([key, value]) => ({ key, en: value })));
+registerServerMessages("containers", Object.entries(en).filter(([key]) => key.startsWith("recovery.") || key.startsWith("server.")).map(([key, value]) => ({ key, en: value })));
 const api = <T,>(path: string, body?: unknown) =>
   request<T>("module-api/containers/" + path, body ? "POST" : "GET", body);
 type Container = {
@@ -224,7 +224,7 @@ function Background() {
       for (const j of jobs.data) {
         if (previous.current[j.id] === "running" && j.status !== "running")
           toast(
-            completionMessage(j),
+            completionMessage(j) + (j.status === "failed" && j.error ? ": " + (j.error.length > 300 ? j.error.slice(0, 300) + "…" : j.error) : ""),
           );
       }
     previous.current = Object.fromEntries(
@@ -294,7 +294,9 @@ function Modal({
   busy = false,
   dirty = false,
   compact = false,
+  message,
 }: {
+  message?: string;
   title: string;
   children: ReactNode;
   footer?: ReactNode;
@@ -319,7 +321,7 @@ function Modal({
           intent={compact ? "confirm" : "edit"}
           dirty={dirty}
           busy={busy}
-          message={tr("submitting")}
+          message={message ?? tr("submitting")}
           header={<Dialog.Title>{title}</Dialog.Title>}
           footer={footer ? <div className="dialog-actions">{footer}</div> : undefined}
         >
@@ -542,11 +544,15 @@ function ImagePicker({ value, onChange }: { value: string; onChange: (value: str
     </>}
   </div>;
 }
-type PortDraft = {host:string;container:number;published:number;protocol:string};
+// taken: the container port number the backend replaced because it is in use on the NAS (local hint, never sent).
+type PortDraft = {host:string;container:number;published:number;protocol:string;taken?:number};
+type PortProbe = {free:boolean;suggested?:number};
+type Problem = {field:string;index:number;error:string};
+const wirePort = ({host,container,published,protocol}:PortDraft) => ({host,container,published,protocol});
 type MountDraft = {source:string;target:string;readOnly:boolean};
 type LocalConfig = {id:string; platformCheck:PlatformCheck; ports:PortDraft[];environment:Record<string,string>;volumes:string[];addresses:string[]};
 type EditorSeed = {image:string; ports:PortDraft[]; environment:Record<string,string>; mounts:MountDraft[]; webPort:number; network:string};
-function LocalImageEditor({onChange,initial}:{onChange:(value:Action|null)=>void;initial?:EditorSeed}) {
+function LocalImageEditor({onChange,initial,imageLocked=!!initial,problems=[]}:{onChange:(value:Action|null)=>void;initial?:EditorSeed;imageLocked?:boolean;problems?:Problem[]}) {
   const state=useStateData();
   const [selected,setSelected]=useState(initial?.image ?? "");
   const [config,setConfig]=useState<LocalConfig|null>(null);
@@ -556,26 +562,45 @@ function LocalImageEditor({onChange,initial}:{onChange:(value:Action|null)=>void
   const [web,setWeb]=useState(0);
   const [network,setNetwork]=useState("");
   const [folder,setFolder]=useState<number|null>(null);
-  const detail=useQuery({queryKey:["containers","image-config",selected],queryFn:()=>api<LocalConfig>("images/config?image="+encodeURIComponent(selected)),enabled:!!selected,retry:false,staleTime:Infinity,refetchOnWindowFocus:false});
+  // gcTime 0: proposed NAS ports reflect what is free when the form opens, not an earlier answer.
+  const detail=useQuery({queryKey:["containers","image-config",selected],queryFn:()=>api<LocalConfig>("images/config?image="+encodeURIComponent(selected)),enabled:!!selected,retry:false,staleTime:Infinity,gcTime:0,refetchOnWindowFocus:false});
   useEffect(()=>{
     if (!detail.data || detail.data.id!==selected) return;
-    setConfig(detail.data);setPorts(initial?.ports ?? detail.data.ports);
-    setEnv(Object.entries(initial?.environment ?? detail.data.environment).map(([key,value])=>({key,value})));
-    setMounts(initial?.mounts ?? detail.data.volumes.map(target=>({target,source:"",readOnly:false})));setWeb(initial?.webPort ?? 0);setNetwork(initial?.network ?? "");
+    const seed=initial&&initial.image===selected?initial:undefined;
+    setConfig(detail.data);setPorts(seed?.ports ?? detail.data.ports.map(p=>p.published!==p.container?{...p,taken:p.container}:p));
+    setEnv(Object.entries(seed?.environment ?? detail.data.environment).map(([key,value])=>({key,value})));
+    setMounts(seed?.mounts ?? detail.data.volumes.map(target=>({target,source:"",readOnly:false})));setWeb(seed?.webPort ?? 0);setNetwork(seed?.network ?? "");
   },[selected,detail.data]);
+  // Ask the NAS which ports are free shortly after the mapping changes. The answer is advisory:
+  // Apply stays available and the server checks again. Ports the edited container already holds are skipped.
+  const probeKey=JSON.stringify(ports.map(p=>[p.host,p.container,p.published,p.protocol]));
+  const [probe,setProbe]=useState<{key:string;rows:PortProbe[]}|null>(null);
+  const loaded=!!config&&config.id===selected;
+  useEffect(()=>{
+    if(!loaded||!ports.length||ports.length>32)return;
+    let cancelled=false;
+    const timer=setTimeout(()=>{
+      api<{ports:PortProbe[]}>("ports/check",{ports:ports.map(wirePort)}).then(r=>{if(!cancelled)setProbe({key:probeKey,rows:r.ports})}).catch(()=>{});
+    },500);
+    return()=>{cancelled=true;clearTimeout(timer)};
+  },[probeKey,loaded]);
+  const own=(p:PortDraft)=>!!initial&&imageLocked&&initial.ports.some(o=>o.host===p.host&&o.published===p.published&&o.protocol===p.protocol);
+  const busyPort=(i:number)=>probe?.key===probeKey&&probe.rows[i]&&!probe.rows[i].free&&!own(ports[i])?probe.rows[i]:undefined;
   const valid=!!config && config.id===selected && config.platformCheck.status==="compatible" &&
     ports.every(p=>p.container>=1&&p.container<=65535&&p.published>=1&&p.published<=65535) &&
     env.every(e=>!!e.key&&!e.key.includes("=")) && new Set(env.map(e=>e.key)).size===env.length &&
     mounts.every(m=>!m.source||(m.target.startsWith("/")&&m.target!=="/")) &&
     new Set(mounts.filter(m=>m.source).map(m=>m.target)).size===mounts.filter(m=>m.source).length;
   useEffect(()=>{
-    onChange(valid&&folder===null?{action:"image.create",image:selected,ports,environment:Object.fromEntries(env.map(e=>[e.key,e.value])),mounts:mounts.filter(m=>m.source),webPort:ports.some(p=>p.protocol==="tcp"&&p.published===web)?web:0,network}:null);
+    onChange(valid&&folder===null?{action:"image.create",image:selected,ports:ports.map(wirePort),environment:Object.fromEntries(env.map(e=>[e.key,e.value])),mounts:mounts.filter(m=>m.source),webPort:ports.some(p=>p.protocol==="tcp"&&p.published===web)?web:0,network}:null);
   },[valid,selected,ports,env,mounts,web,network,folder]);
-  function port(index:number,patch:Partial<PortDraft>){setPorts(rows=>rows.map((row,i)=>i===index?{...row,...patch}:row))}
+  function port(index:number,patch:Partial<PortDraft>){setPorts(rows=>rows.map((row,i)=>i===index?{...row,taken:undefined,...patch}:row))}
+  const problem=(field:string,index=0)=>problems.filter(p=>p.field===field&&p.index===index);
   function mount(index:number,patch:Partial<MountDraft>){setMounts(rows=>rows.map((row,i)=>i===index?{...row,...patch}:row))}
   if(folder!==null)return <div><Button onClick={()=>setFolder(null)}>{tr("cancel")}</Button><FolderPicker policy="share" initialPath={mounts[folder].source} onChoose={source=>{mount(folder,{source});setFolder(null)}}/></div>;
   return <>
-    <label className="field">{tr("localImage")}<select disabled={!!initial} value={selected} onChange={e=>{setConfig(null);setSelected(e.target.value)}}><option value="">{tr("selectImage")}</option>{state.data?.images.map(image=><option key={image.Id} value={image.Id} disabled={image.platformCheck?.status==="incompatible"}>{image.RepoTags?.filter(t=>t!=="<none>:<none>").join(", ")||tr("untagged")} · {image.platformCheck?.platforms.map(p=>p.os+"/"+p.architecture).join(", ")||tr("platform.unknown")}{image.platformCheck?.status==="incompatible"?" · "+tr("platform.incompatible"):""}</option>)}</select><small>{tr("localImageHint")}</small></label>
+    <label className="field">{tr("localImage")}<select disabled={imageLocked} value={selected} aria-invalid={problem("image").length>0||undefined} aria-describedby={problem("image").length?"container-image-error":undefined} onChange={e=>{setConfig(null);setSelected(e.target.value)}}><option value="">{tr("selectImage")}</option>{state.data?.images.map(image=><option key={image.Id} value={image.Id} disabled={image.platformCheck?.status==="incompatible"}>{image.RepoTags?.filter(t=>t!=="<none>:<none>").join(", ")||tr("untagged")} · {image.platformCheck?.platforms.map(p=>p.os+"/"+p.architecture).join(", ")||tr("platform.unknown")}{image.platformCheck?.status==="incompatible"?" · "+tr("platform.incompatible"):""}</option>)}</select><small>{tr("localImageHint")}</small></label>
+    {problem("image").length>0&&<p className="error-text" id="container-image-error">{problem("image").map(p=>p.error).join(" ")}</p>}
     {state.error&&<Notice error>{state.error.message}</Notice>}
     {detail.isFetching&&<p role="status">{tr("loading")}</p>}
     {detail.error&&<Notice error>{detail.error.message}</Notice>}
@@ -585,14 +610,19 @@ function LocalImageEditor({onChange,initial}:{onChange:(value:Action|null)=>void
       <section className="containers-editor"><div className="containers-editor-heading"><h3>{tr("ports")}</h3><ActionIcon icon={mdiPlus} label={tr("addPort")} onClick={()=>setPorts([...ports,{host:"0.0.0.0",container:80,published:8080,protocol:"tcp"}])}/></div>
         {!ports.length&&<p className="muted">{tr("noPorts")}</p>}
         {ports.length>0&&<div className="containers-port-row containers-column-head" aria-hidden="true">{["containerPort","hostPort","protocol","bindAddress"].map(k=><span key={k}>{tr(k)}</span>)}<span/></div>}
-        {ports.map((p,i)=><div className="containers-port-row" key={i}>
-          <label className="field"><span className="containers-row-label">{tr("containerPort")}</span><input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} value={p.container || ""} onChange={e=>{if(/^[0-9]{0,5}$/.test(e.target.value))port(i,{container:Number(e.target.value)})}}/></label>
-          <label className="field"><span className="containers-row-label">{tr("hostPort")}</span><input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} value={p.published || ""} onChange={e=>{if(/^[0-9]{0,5}$/.test(e.target.value))port(i,{published:Number(e.target.value)})}}/></label>
+        {ports.map((p,i)=>{const failed=problem("ports",i),busy=failed.length?undefined:busyPort(i),note=failed.length||busy||p.taken!==undefined?"container-port-note-"+i:undefined;return <div className="containers-port-entry" key={i}><div className="containers-port-row">
+          <label className="field"><span className="containers-row-label">{tr("containerPort")}</span><input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} value={p.container || ""} onChange={e=>{if(/^[0-9]{0,5}$/.test(e.target.value))port(i,{container:Number(e.target.value),taken:p.taken})}}/></label>
+          <label className="field"><span className="containers-row-label">{tr("hostPort")}</span><input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={5} value={p.published || ""} aria-invalid={failed.length>0||!!busy||undefined} aria-describedby={note} onChange={e=>{if(/^[0-9]{0,5}$/.test(e.target.value))port(i,{published:Number(e.target.value)})}}/></label>
           <label className="field"><span className="containers-row-label">{tr("protocol")}</span><select value={p.protocol} onChange={e=>port(i,{protocol:e.target.value})}><option value="tcp">TCP</option><option value="udp">UDP</option></select></label>
           <label className="field"><span className="containers-row-label">{tr("bindAddress")}</span><select value={p.host} onChange={e=>port(i,{host:e.target.value})}>{config.addresses.map(a=><option key={a} value={a}>{a==="0.0.0.0"?tr("allInterfaces")+" · IPv4":a==="::"?tr("allInterfaces")+" · IPv6":a}</option>)}</select></label>
           <ActionIcon icon={mdiDeleteOutline} label={tr("remove")} onClick={()=>setPorts(ports.filter((_,n)=>n!==i))}/>
-        </div>)}
-        <label className="field">{tr("webPort")}<select value={ports.some(p=>p.protocol==="tcp"&&p.published===web)?web:0} onChange={e=>setWeb(Number(e.target.value))}><option value={0}>{tr("none")}</option>{Array.from(new Set(ports.filter(p=>p.protocol==="tcp").map(p=>p.published))).map(p=><option key={p} value={p}>{p}</option>)}</select><small>{tr("webHint")}</small></label>
+        </div>
+          {failed.length>0?<p className="error-text" id={note}>{failed.map(f=>f.error).join(" ")}</p>
+            :busy?<p className="error-text containers-port-note" id={note} role="status"><span>{tr("portTaken",{port:p.published,protocol:p.protocol})}</span>{!!busy.suggested&&<Button onClick={()=>port(i,{published:busy.suggested})}>{tr("usePort",{port:busy.suggested})}</Button>}</p>
+            :p.taken!==undefined&&<p className="muted" id={note}>{tr("portProposed",{taken:p.taken,port:p.published})}</p>}
+        </div>})}
+        <label className="field">{tr("webPort")}<select value={ports.some(p=>p.protocol==="tcp"&&p.published===web)?web:0} aria-invalid={problem("webPort").length>0||undefined} aria-describedby={problem("webPort").length?"container-web-error":undefined} onChange={e=>setWeb(Number(e.target.value))}><option value={0}>{tr("none")}</option>{Array.from(new Set(ports.filter(p=>p.protocol==="tcp").map(p=>p.published))).map(p=><option key={p} value={p}>{p}</option>)}</select><small>{tr("webHint")}</small></label>
+        {problem("webPort").length>0&&<p className="error-text" id="container-web-error">{problem("webPort").map(p=>p.error).join(" ")}</p>}
       </section>
 
       <section className="containers-editor"><div className="containers-editor-heading"><h3>{tr("volumesTitle")}</h3><ActionIcon icon={mdiPlus} label={tr("addMount")} onClick={()=>setMounts([...mounts,{source:"",target:"/data",readOnly:false}])}/></div><p className="muted">{tr("anonymousVolumeHint")}</p>
@@ -609,16 +639,45 @@ function LocalImageEditor({onChange,initial}:{onChange:(value:Action|null)=>void
   </>;
 }
 
+type CreateDraft = { id: string; name: string; action: Action };
 function Create({
   kind,
   name = "",
+  seed,
+  onAccepted,
   onClose,
 }: {
   kind: string;
   name?: string;
+  seed?: Action;
+  onAccepted?: (draft: CreateDraft) => void;
   onClose: () => void;
 }) {
-  const [target, setTarget] = useState(name);
+  const [target, setTarget] = useState(name || String(seed?.target ?? ""));
+  const [problems, setProblems] = useState<Problem[]>([]);
+  const [checking, setChecking] = useState(false);
+  const summary = useRef<HTMLDivElement>(null);
+  const nameInput = useRef<HTMLInputElement>(null);
+  const editorSeed = useRef<EditorSeed | undefined>(seed && {
+    image: String(seed.image ?? ""),
+    ports: (seed.ports as PortDraft[] | undefined) ?? [],
+    environment: (seed.environment as Record<string, string> | undefined) ?? {},
+    mounts: (seed.mounts as MountDraft[] | undefined) ?? [],
+    webPort: Number(seed.webPort) || 0,
+    network: String(seed.network ?? ""),
+  });
+  const acceptImage = useRef((value: Action | null) => {
+    setImageAction(value);
+    setProblems((current) => current.some((p) => p.field !== "name") ? current.filter((p) => p.field === "name") : current);
+  });
+  // After a refused submission move focus to the first thing to correct: the name field,
+  // or the summary that lists the issues found further down the form.
+  const [refused, setRefused] = useState(0);
+  useEffect(() => {
+    if (!refused) return;
+    if (summary.current) summary.current.focus();
+    else nameInput.current?.focus();
+  }, [refused]);
   const [image, setImage] = useState("");
   const [compose, setCompose] = useState("");
   const [variables, setVariables] = useState("");
@@ -650,13 +709,28 @@ function Create({
     if (kind === "pull") a = { action: "image.pull", target: image, image };
     setBusy(true);
     try {
-      await api("action", { ...a, displayName: kind === "pull" ? image : target, id: id.current });
+      const request = { ...a, displayName: kind === "pull" ? image : target, id: id.current };
+      if (kind === "image") {
+        // Validate while the form is still open: what the user can correct is shown beside its field.
+        setChecking(true);
+        const found = (await api<{ problems: Problem[] }>("action/check", request)).problems;
+        setChecking(false);
+        if (found.length) {
+          const order = ["name", "image", "ports", "webPort", "general"];
+          setProblems([...found].sort((x, y) => order.indexOf(x.field) - order.indexOf(y.field)));
+          setRefused((n) => n + 1);
+          return;
+        }
+      }
+      await api("action", request);
       void q.invalidateQueries({ queryKey: jobsKey });
       toast(tr("accepted"));
+      if (kind === "image") onAccepted?.({ id: id.current, name: target, action: a });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      setChecking(false);
       setBusy(false);
     }
   }
@@ -677,6 +751,7 @@ function Create({
       }
       close={onClose}
       busy={busy}
+      message={checking ? tr("checking") : undefined}
       dirty={dirty}
       footer={
           <>
@@ -694,23 +769,42 @@ function Create({
       }
     >
       {error && <Notice error>{error}</Notice>}
+      {problems.some((p) => p.field !== "name") && (
+        <div ref={summary} tabIndex={-1} className="containers-problems">
+          <Notice error>
+            <strong>{tr("formProblems")}</strong>
+            <ul>{problems.map((p, i) => <li key={i}>{p.error}</li>)}</ul>
+          </Notice>
+        </div>
+      )}
       {saved.error && <Notice error>{saved.error.message}</Notice>}
         <div className="containers-form">
           {kind !== "pull" && (
             <label className="field">
               {tr("name")}
               <input
+                ref={nameInput}
                 value={target}
-                onChange={(e) => setTarget(e.target.value)}
+                onChange={(e) => {
+                  setTarget(e.target.value);
+                  setProblems((current) => current.filter((p) => p.field !== "name"));
+                }}
                 disabled={!!name}
                 maxLength={48}
                 placeholder="my-app"
                 autoFocus
+                aria-invalid={problems.some((p) => p.field === "name") || undefined}
+                aria-describedby={problems.some((p) => p.field === "name") ? "container-name-error" : undefined}
               />
+              {problems.some((p) => p.field === "name") && (
+                <span className="error-text" id="container-name-error">
+                  {problems.filter((p) => p.field === "name").map((p) => p.error).join(" ")}
+                </span>
+              )}
             </label>
           )}
           {kind === "pull" && <ImagePicker value={image} onChange={setImage} />}
-          {kind === "image" && <LocalImageEditor onChange={setImageAction} />}
+          {kind === "image" && <LocalImageEditor onChange={acceptImage.current} initial={editorSeed.current} imageLocked={false} problems={problems} />}
           {kind === "pull" && <p className="muted">{tr("imagePullHint")}</p>}
           {kind === "compose" && (
             <>
@@ -1017,9 +1111,16 @@ function Page() {
   useEffect(() => {
     if (!requestedTab || requestedTab === "apps") navigate("/containers/containers", { replace: true });
   }, [requestedTab, navigate]);
-  const [create, setCreate] = useState<{ kind: string; name?: string } | null>(
+  const [create, setCreate] = useState<{ kind: string; name?: string; seed?: Action } | null>(
     null,
   );
+  // The last "create from image" request accepted in this view. If its job fails later
+  // (the dialog is closed by then), the failure and the entered values stay reachable here.
+  const [accepted, setAccepted] = useState<CreateDraft | null>(null);
+  const acceptedJob = accepted && jobs.data?.find((j) => j.id === accepted.id);
+  useEffect(() => {
+    if (acceptedJob?.status === "succeeded") setAccepted(null);
+  }, [acceptedJob?.status]);
   const [confirm, setConfirm] = useState<{ a: Action; name: string } | null>(
     null,
   );
@@ -1160,6 +1261,17 @@ function Page() {
         </div>
       </div>
       {error && <Notice error>{error}</Notice>}
+      {accepted && acceptedJob?.status === "failed" && (
+        <Notice error>
+          <span className="containers-create-failed">
+            <span><strong>{tr("createFailed", { name: accepted.name })}</strong> {acceptedJob.error}</span>
+            <span className="containers-actions">
+              <Button disabled={!ready} onClick={() => { setCreate({ kind: "image", seed: { ...accepted.action, target: accepted.name } }); setAccepted(null); }}>{tr("reopenForm")}</Button>
+              <Button onClick={() => setAccepted(null)}>{tr("dismiss")}</Button>
+            </span>
+          </span>
+        </Notice>
+      )}
       {state.error && (
         <Notice error>
           {state.data ? tr("lastKnown") + " " : ""}
@@ -1296,7 +1408,7 @@ function Page() {
           )}
         </Tabs.Content>
       </Tabs.Root>
-      {create && <Create {...create} onClose={() => setCreate(null)} />}{" "}
+      {create && <Create {...create} onAccepted={setAccepted} onClose={() => setCreate(null)} />}{" "}
       {confirm && (
         <Confirmation {...confirm} onClose={() => setConfirm(null)} />
       )}{" "}

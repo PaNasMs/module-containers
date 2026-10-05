@@ -21,7 +21,7 @@ type ImageConfig struct {
 
 func (d *Docker) ImageConfig(ctx context.Context, reference string) (ImageConfig, error) {
 	if validImage(reference) != nil || strings.ContainsAny(reference, "?#") {
-		return ImageConfig{}, errors.New("Invalid image reference")
+		return ImageConfig{}, errors.New(msgImageReference)
 	}
 	result := ImageConfig{Ports: []Binding{}, Environment: map[string]string{}, Volumes: []string{}, Addresses: []string{"0.0.0.0", "127.0.0.1", "::"}}
 	var detail struct {
@@ -33,7 +33,7 @@ func (d *Docker) ImageConfig(ctx context.Context, reference string) (ImageConfig
 		}
 	}
 	if err := d.Call(ctx, "GET", "/images/"+url.PathEscape(reference)+"/json", nil, &detail); err != nil {
-		return result, errors.New("Local image is unavailable; download it in Images first")
+		return result, errors.New(msgImageUnavailable)
 	}
 	host, err := d.HostPlatform(ctx)
 	if err != nil {
