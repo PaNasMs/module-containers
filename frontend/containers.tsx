@@ -901,6 +901,7 @@ export function DockerSettings() {
           <section>
             <h3>{tr("dataRoot")}</h3>
             <p className="muted">{tr("dataHint")}</p>
+            <p className="muted">{tr("dataFolderHint")}</p>
             <div className="containers-location">
               <strong>{root || st.dataRoot || "—"}</strong>
               <ActionIcon

@@ -702,14 +702,23 @@ func (e *Engine) saveProject(ctx context.Context, a Action) error {
 		}
 		a.Image = detail.ID
 
-		if statErr == nil {
+		if statErr == nil && !retryableCreate(dir) {
 			return errors.New(msgProjectExists)
 		}
 		raw, err := imageCompose(a)
 		if err != nil {
 			return err
 		}
-		if err = portsFree(a.Ports); err != nil {
+		ports := a.Ports
+		if retryableCreate(dir) {
+			ports = nil
+			for _, binding := range a.Ports {
+				if !ownsBinding(existing, a.Target, binding) {
+					ports = append(ports, binding)
+				}
+			}
+		}
+		if err = portsFree(ports); err != nil {
 			return err
 		}
 		a.Compose = string(raw)
@@ -759,8 +768,19 @@ func (e *Engine) saveProject(ctx context.Context, a Action) error {
 	if err = atomic(filepath.Join(dir, "compose.json"), config); err != nil {
 		return err
 	}
+	if a.Action == "image.create" {
+		if err = atomic(filepath.Join(dir, "pending-create.json"), map[string]bool{"pending": true}); err != nil {
+			return err
+		}
+	}
 	e.stage(a.ID, "Downloading images and starting services")
-	return e.compose(ctx, a.Target, "up", "-d", "--wait", "--wait-timeout", "120")
+	if err = e.compose(ctx, a.Target, "up", "-d", "--wait", "--wait-timeout", "120"); err != nil {
+		return err
+	}
+	if err = os.Remove(filepath.Join(dir, "pending-create.json")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 func validateCompose(config map[string]any, protectedRoots ...string) error {
 	services, ok := config["services"].(map[string]any)

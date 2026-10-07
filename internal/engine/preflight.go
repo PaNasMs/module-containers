@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -129,7 +130,7 @@ func (e *Engine) preflight(ctx context.Context, a Action) []Problem {
 	exists := false
 	if !nameRE.MatchString(a.Target) {
 		problems = append(problems, Problem{"name", 0, msgNameRule})
-	} else if _, err := os.Stat(filepath.Join(e.root, "projects", a.Target)); err == nil {
+	} else if _, err := os.Stat(filepath.Join(e.root, "projects", a.Target)); err == nil && !retryableCreate(filepath.Join(e.root, "projects", a.Target)) {
 		exists = true
 		problems = append(problems, Problem{"name", 0, msgProjectExists})
 	}
@@ -160,7 +161,17 @@ func (e *Engine) preflight(ctx context.Context, a Action) []Problem {
 	if e.docker == nil || e.docker.Call(ctx, "GET", "/containers/json?all=1", nil, &existing) != nil {
 		return problems
 	}
-	if !exists && nameRE.MatchString(a.Target) {
+	if retryableCreate(filepath.Join(e.root, "projects", a.Target)) {
+		kept := problems[:0]
+		for _, problem := range problems {
+			if problem.Field == "ports" && problem.Index < len(a.Ports) && problem.Error == fmt.Sprintf(msgPortInUse, a.Ports[problem.Index].Published, a.Ports[problem.Index].Protocol) && ownsBinding(existing, a.Target, a.Ports[problem.Index]) {
+				continue
+			}
+			kept = append(kept, problem)
+		}
+		problems = kept
+	}
+	if !exists && nameRE.MatchString(a.Target) && !retryableCreate(filepath.Join(e.root, "projects", a.Target)) {
 		for _, c := range existing {
 			if c.Labels["com.docker.compose.project"] == a.Target {
 				problems = append(problems, Problem{"name", 0, msgExternalProject})
@@ -245,4 +256,31 @@ func probePorts(ports []Binding) []PortProbe {
 		}
 	}
 	return result
+}
+
+// Failed first starts retain their data and can be reconciled by Compose on retry.
+func retryableCreate(dir string) bool {
+	raw, err := os.ReadFile(filepath.Join(dir, "pending-create.json"))
+	var state struct {
+		Pending bool `json:"pending"`
+	}
+	return err == nil && json.Unmarshal(raw, &state) == nil && state.Pending
+}
+
+func ownsBinding(containers []Container, project string, binding Binding) bool {
+	host := binding.Host
+	if host == "" {
+		host = "0.0.0.0"
+	}
+	for _, c := range containers {
+		if c.Labels["com.docker.compose.project"] != project {
+			continue
+		}
+		for _, p := range c.Ports {
+			if p.IP == host && p.PublicPort == binding.Published && p.PrivatePort == binding.Container && p.Type == binding.Protocol {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -210,5 +210,6 @@
   "server.mountPath": "Container mount path must be absolute and not root",
   "server.hostFolder": "Host folder unavailable: {{v1}}",
   "server.volumeName": "Invalid volume name",
-  "server.networkName": "Invalid network name"
+  "server.networkName": "Invalid network name",
+  "dataFolderHint": "Choose the parent folder, then name the dedicated Docker folder in the picker. The complete path shown below is the exact location used; no extra folder is added when you apply."
 }
