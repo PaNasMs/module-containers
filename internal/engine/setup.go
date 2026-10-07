@@ -48,19 +48,25 @@ func installed(ctx context.Context, p string) bool {
 	s, err := setupCommand(ctx, "", "dpkg-query", "-W", "-f=${db:Status-Status}", p)
 	return err == nil && s == "installed"
 }
+func packageCandidate(ctx context.Context, name string) string {
+	policy, err := setupCommand(ctx, "", "apt-cache", "policy", name)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(policy, "\n") {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(line), "Candidate:"); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
 func composePackage(ctx context.Context, vendor bool) string {
 	if vendor {
 		return "docker-compose-plugin"
 	}
 	for _, name := range []string{"docker-compose-v2", "docker-compose"} {
-		policy, err := setupCommand(ctx, "", "apt-cache", "policy", name)
-		if err != nil {
-			continue
-		}
-		for _, line := range strings.Split(policy, "\n") {
-			if value, ok := strings.CutPrefix(strings.TrimSpace(line), "Candidate:"); ok && atLeast(value, 2, 20) {
-				return name
-			}
+		if atLeast(packageCandidate(ctx, name), 2, 20) {
+			return name
 		}
 	}
 	return ""
@@ -122,6 +128,9 @@ func (e *Engine) Check(parent context.Context) (c Check) {
 			c.Missing = append(c.Missing, "docker-cli")
 		} else {
 			c.Missing = append(c.Missing, "docker.io")
+			if atLeast(packageCandidate(ctx, "docker-cli"), 24, 0) {
+				c.Missing = append(c.Missing, "docker-cli")
+			}
 		}
 	} else if !c.Reachable {
 		if installed(ctx, "docker.io") || installed(ctx, "docker-ce") {
@@ -141,15 +150,18 @@ func (e *Engine) Check(parent context.Context) (c Check) {
 		}
 	} else {
 		if installed(ctx, "docker-compose") || installed(ctx, "docker-compose-v2") || installed(ctx, "docker-compose-plugin") {
-			c.Problem = "Compose is installed but its Docker plugin is unavailable or incompatible. Review the installation."
-			return c
+			if cliErr == nil {
+				c.Problem = "Compose is installed but its Docker plugin is unavailable or incompatible. Review the installation."
+				return c
+			}
+		} else {
+			pkg := composePackage(ctx, installed(ctx, "docker-ce"))
+			if pkg == "" {
+				c.Problem = "Docker Compose 2.20 or newer is unavailable in configured APT repositories."
+				return c
+			}
+			c.Missing = append(c.Missing, pkg)
 		}
-		pkg := composePackage(ctx, installed(ctx, "docker-ce"))
-		if pkg == "" {
-			c.Problem = "Docker Compose 2.20 or newer is unavailable in configured APT repositories."
-			return c
-		}
-		c.Missing = append(c.Missing, pkg)
 	}
 	if len(c.Missing) > 0 {
 		c.CanInstall = true
