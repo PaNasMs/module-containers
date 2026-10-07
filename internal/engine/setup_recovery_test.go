@@ -143,3 +143,63 @@ func TestComposePackageSelection(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupDockerCLIPackageSplit(t *testing.T) {
+	old := setupCommand
+	t.Cleanup(func() { setupCommand = old })
+	for _, tc := range []struct {
+		name, vendor        string
+		cli, split, compose bool
+		missing             string
+		install             bool
+	}{
+		{name: "fresh Debian 13", split: true, missing: "docker.io,docker-cli,docker-compose", install: true},
+		{name: "fresh Ubuntu bundled CLI", missing: "docker.io,docker-compose", install: true},
+		{name: "resume Debian without CLI", vendor: "docker.io", split: true, compose: true, missing: "docker-cli", install: true},
+		{name: "vendor without CLI", vendor: "docker-ce", compose: true, missing: "docker-ce-cli", install: true},
+		{name: "broken plugin with CLI", vendor: "docker.io", cli: true, compose: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("PATH", root)
+			if tc.cli {
+				if err := os.WriteFile(filepath.Join(root, "docker"), []byte("#!/bin/sh\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			setupCommand = func(_ context.Context, _ string, args ...string) (string, error) {
+				name := args[len(args)-1]
+				switch args[0] {
+				case "dpkg-query":
+					if name == tc.vendor || tc.compose && name == "docker-compose" {
+						return "installed", nil
+					}
+					return "", errors.New("not installed")
+				case "apt-cache":
+					if name == "docker-compose-v2" || name == "docker-cli" && !tc.split {
+						return "Candidate: (none)", nil
+					}
+					return "Candidate: 26.1.5", nil
+				case "docker":
+					return "", errors.New("CLI or plugin unavailable")
+				}
+				t.Fatalf("unexpected command %v", args)
+				return "", nil
+			}
+			e := &Engine{root: root, docker: &Docker{Client: &http.Client{Transport: setupTransport(func(r *http.Request) (*http.Response, error) {
+				if tc.vendor == "" {
+					return nil, errors.New("not installed")
+				}
+				body := `{"Version":"26.1","Os":"linux","Arch":"arm64"}`
+				if r.URL.Path == "/info" {
+					body = `{"DockerRootDir":"/srv/docker"}`
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+			})}}}
+			check := e.Check(context.Background())
+			if got := strings.Join(check.Missing, ","); got != tc.missing || check.CanInstall != tc.install || check.Compatible {
+				t.Fatalf("unexpected setup plan: %+v", check)
+			}
+		})
+	}
+}
