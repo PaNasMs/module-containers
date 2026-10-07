@@ -587,3 +587,63 @@ func TestUserMessagesHaveTranslations(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyPendingCreatesCanBeRetried(t *testing.T) {
+	dir := t.TempDir()
+	if retryableCreate(dir) {
+		t.Fatal("existing projects must not be replaced")
+	}
+	for _, raw := range []string{`{}`, `{"pending":false}`, `invalid`} {
+		os.WriteFile(filepath.Join(dir, "pending-create.json"), []byte(raw), 0600)
+		if retryableCreate(dir) {
+			t.Fatal("invalid marker accepted")
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "pending-create.json"), []byte(`{"pending":true}`), 0600)
+	if !retryableCreate(dir) {
+		t.Fatal("failed first start should permit retry")
+	}
+}
+
+func TestRetryFailedFirstStartPreservesProjectData(t *testing.T) {
+	stubPorts(t)
+	docker := dockerStub{}
+	for k, v := range compatibleDocker {
+		docker[k] = v
+	}
+	docker["/info"] = `{"OSType":"linux","Architecture":"x86_64","DockerRootDir":"/var/lib/docker"}`
+	e := stubEngine(t, docker)
+	bin := t.TempDir()
+	failure := filepath.Join(bin, "fail")
+	os.WriteFile(failure, []byte("fail"), 0600)
+	script := "#!/bin/sh\ncase \" $* \" in\n*' config '*) echo '{\"services\":{\"app\":{\"image\":\"nginx\"}}}';;\n*) test ! -f '" + failure + "';;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "docker"), []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
+	a := Action{ID: "12345678", Action: "image.create", Target: "retry", Image: "nginx"}
+	if err := e.saveProject(context.Background(), a); err == nil {
+		t.Fatal("expected failed start")
+	}
+	dir := filepath.Join(e.root, "projects", a.Target)
+	if !retryableCreate(dir) {
+		t.Fatal("missing retry marker")
+	}
+	os.WriteFile(filepath.Join(dir, "preserve"), []byte("data"), 0600)
+	if issues := e.preflight(context.Background(), a); len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	os.Remove(failure)
+	if err := e.saveProject(context.Background(), a); err != nil {
+		t.Fatal(err)
+	}
+	if retryableCreate(dir) {
+		t.Fatal("successful creation still retryable")
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "preserve")); err != nil || string(data) != "data" {
+		t.Fatal("project data lost")
+	}
+	if err := e.saveProject(context.Background(), a); err == nil {
+		t.Fatal("must not overwrite a successful project")
+	}
+}
