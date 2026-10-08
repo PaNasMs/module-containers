@@ -203,3 +203,36 @@ func TestSetupDockerCLIPackageSplit(t *testing.T) {
 		})
 	}
 }
+
+func TestSlowDockerSocketDoesNotHideInstalledPackages(t *testing.T) {
+	old := setupCommand
+	t.Cleanup(func() { setupCommand = old })
+	t.Setenv("PATH", t.TempDir())
+	setupCommand = func(ctx context.Context, _ string, args ...string) (string, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		name := args[len(args)-1]
+		switch args[0] {
+		case "dpkg-query":
+			if name == "docker.io" || name == "docker-compose" {
+				return "installed", nil
+			}
+			return "", errors.New("not installed")
+		case "docker":
+			return "", errors.New("CLI missing")
+		case "apt-cache":
+			return "Candidate: 26.1.5", nil
+		}
+		t.Fatalf("unexpected command %v", args)
+		return "", nil
+	}
+	e := &Engine{root: t.TempDir(), docker: &Docker{Client: &http.Client{Transport: setupTransport(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})}}}
+	check := e.Check(context.Background())
+	if check.Reachable || !check.CanInstall || strings.Join(check.Missing, ",") != "docker-cli" {
+		t.Fatalf("slow socket hid available CLI recovery: %+v", check)
+	}
+}

@@ -102,7 +102,11 @@ func (e *Engine) Check(parent context.Context) (c Check) {
 		Arch       string
 		APIVersion string
 	}
-	err := e.docker.Call(ctx, "GET", "/version", nil, &v)
+	// Socket activation can wait for an unavailable data mount. Reserve time for
+	// package discovery so a stopped daemon does not look like missing packages.
+	probe, stopProbe := context.WithTimeout(ctx, 2*time.Second)
+	defer stopProbe()
+	err := e.docker.Call(probe, "GET", "/version", nil, &v)
 	if err == nil {
 		c.Engine = v.Version
 		c.Reachable = true
@@ -112,10 +116,11 @@ func (e *Engine) Check(parent context.Context) (c Check) {
 			return c
 		}
 		var info struct{ DockerRootDir string }
-		if e.docker.Call(ctx, "GET", "/info", nil, &info) == nil {
+		if e.docker.Call(probe, "GET", "/info", nil, &info) == nil {
 			c.DataRoot = info.DockerRootDir
 		}
 	}
+	stopProbe()
 	_, cliErr := exec.LookPath("docker")
 	if installed(ctx, "podman-docker") {
 		c.Problem = "podman-docker is installed. This module requires Docker Engine; automatic replacement is disabled."
