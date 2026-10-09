@@ -1,101 +1,177 @@
-# Containers and applications
+# PaNasMs Containers module
 
-Preview module for PaNasMs, available through the [official module registry](https://panasms.github.io/module-registry/).
+Containers is the Docker management module for
+[PaNasMs](https://github.com/PaNasMs/panasms), a browser panel for managing a NAS
+on Debian-based Linux. It sets up Docker Engine and Compose from the system's APT
+sources, pulls images, creates containers from forms and manages images, networks,
+volumes and the Docker data directory. Project website:
+<https://panasms.github.io/>.
 
-The Go service talks to the local Docker Engine over its Unix socket and uses the
-Docker Compose v2 CLI for application projects. Access is administrator-only,
-checked by both the core gateway and the module. Docker access is host-level
-administrative access, not a sandbox.
+The module is a preview. The current version is 0.1.17. It requires PaNasMs core
+`>=0.2.15,<0.3.0` and module API 1, and is published for ARM64 and AMD64.
 
-## Included in this preview
+## Install
 
-- Detect the Engine, Compose, versions, daemon availability and conflicting installs.
-- Install missing compatible Debian packages from already configured APT sources;
-  do not replace existing installations or remove/upgrade existing packages implicitly.
-- Create containers from downloaded compatible images, with structured port, environment and folder editors. Compose deployment is hidden while its advanced workflow is under review.
-- Show single-container projects as one row; multi-container Compose projects contain inset rows inside a shared group. Standalone containers remain ungrouped.
-- Inspect registry platform metadata before pull and local image configuration after pull. Show native OS/architecture compatibility against the Docker host, with unknown status for unavailable metadata or unverified CPU variants; emulation and application resource requirements are outside this check.
-- Select Docker Hub tags with paginated loading and an explicit final image reference. Other registries use manual tag entry; digest references remain unchanged.
-- Search Docker Hub while typing an image name (400ms debounce, two-character minimum); select a repository or enter a full image reference. Search uses the Docker Engine images/search API.
-- Manage container start/stop/restart/remove. Open each container for readable details, live resource metrics, logs and form-based settings.
-- Reserve Applications for a future catalog; hide it in this preview. Old `/containers/apps` links redirect to `/containers/containers`.
-- List images, networks and named volumes; create/remove networks and volumes.
-- Use external bridge networks between applications.
-- Persistent server-owned operations, WebSocket updates, task menu and taskbar integration.
-- Docker storage settings, visual folder selection and offline data transfer with
-  a recovery journal. Original data is retained; bind mounts outside data-root are not moved.
-- English, Russian and Ukrainian UI with shared dialogs, themes and controls.
+Open **Modules** in the PaNasMs panel and install Containers from the catalog. The
+module manager picks the package for your architecture. Signed packages and the
+catalog are in the [module registry](https://panasms.github.io/module-registry/).
 
-A fresh install requires an empty dedicated directory on a mounted persistent
-local Linux data filesystem. The Docker service gets a mount dependency so it
-cannot silently write container data to the system disk when that volume is absent.
-For installations created by this module, the classic Docker image store is
-explicitly selected before the Engine starts. Docker 29 otherwise defaults to a
-separate containerd image store outside `data-root`; this would leave images and
-container writable layers on the system disk. Existing installations keep their
-storage driver and are never silently switched between stores.
-Existing Docker configurations remain authoritative and are not migrated automatically.
-The preview requires Docker Engine >=24 and Compose >=2.20. A separate containerd
-snapshotter store and live-restore prevent data migration with an explicit explanation.
+Only panel administrators can use Containers. Both the core gateway and the module
+check this. Docker access is root-level access to the host, not a sandbox.
 
-Removing this module retains its metadata, Docker and application data. Running
-containers do not depend on the module service. Removing an application does not
-pass `--volumes`; named volumes and host files remain. Deleting a named volume is
-an explicit destructive operation and fails while Docker reports it in use.
+## What the preview does
 
-## Limits of the first draft
+- Detects Docker Engine and Compose, their versions, whether the daemon responds
+  and conflicting installations. It requires Docker Engine 24 or newer and
+  Compose 2.20 or newer.
+- Installs missing compatible Debian packages from APT sources that are already
+  configured. It does not replace an existing installation and does not remove or
+  upgrade existing packages.
+- Pulls images. Docker Hub tags load page by page, and other registries take a
+  manually entered tag. Digest references are kept as entered. Typing an image
+  name searches Docker Hub through the Docker Engine search API after two
+  characters and a 400 ms pause.
+- Shows whether an image matches the host OS and architecture, using registry
+  metadata before the pull and the local image configuration after it. The status
+  is "unknown" when metadata is missing or the CPU variant cannot be verified. The
+  check does not cover emulation or an application's resource needs.
+- Creates containers from downloaded images with forms for published ports,
+  environment variables, folders and networks. An optional web interface port adds
+  an **Open web interface** link; the module does not assume that every published
+  port serves HTTP.
+- Starts, stops, restarts and removes containers. Each container has a page with
+  details, live resource use, logs and form-based settings.
+- Lists images, networks and named volumes, and creates and removes networks and
+  volumes. Applications can share external bridge networks.
+- Groups the containers of a multi-container Compose project in one row group. A
+  single-container project is one row, and standalone containers are not grouped.
+- Moves the Docker data directory offline with a recovery journal (see below).
+- Runs operations on the server, keeps them across page reloads and reports
+  progress through WebSocket updates, Tasks and the top bar.
 
-No application catalog or automatic application dependencies. Docker firewall
-coexistence with NAS connection sharing still needs separate integration and
-acceptance; no sharing group was active during this installation. No image builds,
-remote Compose source imports, bundled support files, or adoption of external
-Compose projects. Those projects are displayed but their source files are not
-rewritten. Container console, private-registry credential UI, desktop app shortcuts
-and optional web reverse-proxy configuration remain follow-up work.
-An optional web-interface port adds a convenience link; the module does not
-assume every published port is an HTTP service. Default image port mappings publish declared ports on
-all IPv4 interfaces using the protocols declared by the image; mappings can be removed or edited.
+The UI is available in English, Russian and Ukrainian.
 
-Creating a container from an image is checked before a background operation
-exists: name, image, port mappings, NAS port availability and the web port. The
-form stays open and shows each issue beside its field (`POST action/check`;
-`POST action` repeats the check and answers 409). The operation checks again,
-because the NAS can change in between; a failure at that stage is shown on the
-module page with a way to reopen the form with the entered values, and in Tasks.
-A default NAS port keeps the container port number when that is free; otherwise
-the form proposes the next free port from container port + 8000 and says so.
-`POST ports/check` flags a taken NAS port while the mapping is edited. A port is
-probed by binding it on the requested address and closing it at once, at most
-eight candidates per mapping. User-correctable backend messages are translated
-through the `server.*` locale keys; a Go test fails when one has no entry.
+Deploying new Compose projects is hidden while that workflow is under review. The
+Applications tab is reserved for a future catalog and is hidden; old
+`/containers/apps` links redirect to `/containers/containers`.
 
-Configuration and history live in `/var/lib/panasms-containers` (root-only).
-Resolved Compose environment values are stored in root-only files; do not put them
-in public bug reports. Interrupted operations are not silently retried. A failed
-Compose deployment may have created some resources; inspect before retrying.
+## Creating a container
+
+The form checks the name, image, port mappings, NAS port availability and the web
+interface port before it starts a background operation (`POST action/check`;
+`POST action` repeats the check and answers 409 on a problem). Each problem is shown
+next to its field and the form stays open. The operation checks again because the
+NAS can change in between. If that second check fails, the module page and Tasks
+show the error with a way to reopen the form with the values you entered.
+
+By default each published port uses the container port number on the NAS. If that
+port is taken, the form proposes a free one starting from the container port plus
+8000 (or from 30000 to 39999 when that would exceed 65535), tries at most eight
+candidates and says what it changed. `POST ports/check` flags a taken NAS port
+while you edit a mapping. The module tests a port by binding it on the requested
+address and closing it right away.
+
+Default mappings publish the ports the image declares, on all IPv4 interfaces and
+with the protocols the image declares. You can edit or remove them.
+
+If a container's first start fails, its project data is kept. Creating it again
+with the same name reconciles the existing project instead of failing because the
+name or its own ports are already in use.
+
+User-correctable server messages are translated through the `server.*` locale
+keys, and a Go test fails when a message has no entry.
+
+## Docker storage
+
+A fresh Docker installation needs an empty dedicated folder on a mounted,
+persistent, local Linux filesystem. The module adds a systemd mount dependency
+(`RequiresMountsFor`) to the Docker service, so Docker cannot write container data
+to the system disk when that volume is missing.
+
+For installations it creates, the module selects the classic Docker image store
+before the Engine first starts. Docker 29 otherwise defaults to the containerd image
+store outside `data-root`, which would leave images and container layers on the
+system disk. Existing installations keep their storage driver and are never
+switched between stores. Existing Docker configurations stay authoritative and are
+not migrated automatically.
+
+The storage settings move the Docker data directory with the Engine stopped and
+keep a recovery journal. The original data is kept. Bind mounts outside
+`data-root` are not moved. The move is refused, with an explanation, when the
+containerd snapshotter store or Docker `live-restore` is enabled.
+
+## Data, removal and recovery
+
+- Configuration and history are stored in `/var/lib/panasms-containers`, readable
+  by root only. Resolved Compose environment values are in root-only files there;
+  do not attach them to public bug reports.
+- Removing the module keeps its metadata, Docker itself and all application data.
+  Running containers do not depend on the module service.
+- Removing an application does not pass `--volumes`, so named volumes and host
+  files remain. Deleting a named volume is a separate destructive action and fails
+  while Docker reports the volume in use.
+- Interrupted operations are not retried automatically. A failed Compose
+  deployment may have created some resources; check them before retrying.
+
+## Not included yet
+
+- An application catalog or automatic application dependencies.
+- Image builds, importing remote Compose sources, bundled support files and
+  adopting Compose projects created outside the module. Such projects are shown,
+  but the module does not rewrite their files.
+- A container console, a credential UI for private registries, desktop shortcuts
+  and reverse-proxy configuration for web interfaces.
+- Tested coexistence of Docker's firewall rules with NAS connection sharing. No
+  sharing group was active when this was last installed, so the combination is
+  untested.
 
 ## Development
 
-Dependencies pin published SDK commits; no sibling checkout is required.
-Use the current PaNasMs UI (including the container module SDK extensions published on 2026-09-24).
-No Docker daemon is needed for unit tests.
+The UI is React and TypeScript built with Vite. The server is Go and talks to the
+local Docker Engine over its Unix socket and to the Docker Compose v2 CLI for
+projects. Dependencies pin published commits of the
+[module SDK](https://github.com/PaNasMs/module-sdk), so no sibling checkout is
+needed. Interface work follows the
+[PaNasMs interface design standard](https://github.com/PaNasMs/panasms/blob/main/docs/ui-design-guidelines.md).
+
+| Path | Contents |
+| --- | --- |
+| `frontend/` | Containers UI and `locales/` (`en`, `ru`, `uk`) |
+| `cmd/server/` | Module service entry point |
+| `internal/engine/` | Docker API client, setup, preflight checks, data migration and HTTP handlers |
+| `scripts/` | `build.sh`, translation check and payload packaging |
+
+You need Node.js 24, Go 1.26 or newer and Python 3. CI uses Go 1.27.1. The unit
+tests do not need a Docker daemon. To build:
 
 ```sh
-npm ci
-npm run build
-go test -race ./...
-go vet ./...
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -o dist/bin/server ./cmd/server
+sh scripts/build.sh
 ```
 
-Sign the prepared `dist/bin` and `dist/ui` payload using the workspace
-`modules/build-archives.py` and a locally trusted signing key. Do not place keys in
-this repository. Install the signed archive through the existing module manager.
+The script runs `npm ci`, builds the UI, runs `go test ./...` (also available as
+`npm test`) and `go vet ./...`, builds `dist/bin/server` with `CGO_ENABLED=0`,
+checks that `ru` and `uk` have the same translation keys as `en` and writes
+`dist/containers-<version>-<arch>.unsigned.zip`. The architecture comes from
+`go env GOARCH`, and packaging fails if the server binary does not match it. Run
+`go test -race ./...` as an extra check when you change concurrent code.
 
-Interface work follows the [PaNasMs design standard](https://github.com/PaNasMs/panasms/blob/main/docs/ui-design-guidelines.md).
+The unsigned payload cannot be installed directly. For a local test install, sign
+`dist/bin` and `dist/ui` with `modules/build-archives.py` from the main PaNasMs
+repository and a locally trusted key, then upload the archive in **Modules**. Never
+put signing keys in this repository.
 
-Tagged releases (vX.Y.Z) build ARM64 and AMD64 payloads in GitHub Actions. The registry imports, signs and publishes these payloads; signing keys never enter this repository.
+## Release
 
-## Supported architectures
+Update the version in `manifest.json`, `package.json` and `package-lock.json`
+together, commit, then push a matching `vX.Y.Z` tag. The
+[build workflow](.github/workflows/build.yml) builds both architectures on every
+push to `main` and on pull requests. Only a version tag publishes a GitHub release
+with the two unsigned payloads, and packaging fails if the tag does not match the
+manifest version. The module registry imports, signs and publishes them. Signing
+keys never enter this repository.
 
-Version 0.1.8 and newer publish separate native `arm64` and `amd64` packages. The module manager selects the compatible package automatically. CI tests both architectures on Ubuntu 24.04 runners before publishing a release. Package creation verifies the server ELF architecture against the manifest. Older ARM64-only releases remain unchanged.
+## License
+
+Original code is licensed under
+[PolyForm Noncommercial 1.0.0](LICENSE). See [NOTICE](NOTICE) for third-party
+components.
