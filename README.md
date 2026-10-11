@@ -173,5 +173,5 @@ keys never enter this repository.
 ## License
 
 Original code is licensed under
-[PaNasMs Source-Available License 1.0](LICENSE). See [NOTICE](NOTICE) for third-party
+[Sustainable Use License 1.0](LICENSE). See [NOTICE](NOTICE) for third-party
 components.
