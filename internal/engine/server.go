@@ -621,9 +621,6 @@ func (e *Engine) compose(ctx context.Context, name string, args ...string) error
 	}
 	dir := filepath.Join(e.root, "projects", name)
 	configPath := filepath.Join(dir, "compose.json")
-	if len(args) > 0 && args[0] == "up" {
-		args = append(args, "--pull", "never", "--no-build")
-	}
 
 	if _, err := os.Stat(filepath.Join(dir, "workspace.json")); err == nil {
 		w, _, err := readProject(dir)
@@ -641,6 +638,9 @@ func (e *Engine) compose(ctx context.Context, name string, args ...string) error
 		configPath = filepath.Join(dir, "runtime.compose.json")
 		if err = atomic(configPath, literalConfig(w.Config)); err != nil {
 			return err
+		}
+		if len(args) > 0 && args[0] == "up" {
+			args = append(args, "--pull", "never", "--no-build")
 		}
 	}
 	if _, err := os.Stat(configPath); err != nil {
