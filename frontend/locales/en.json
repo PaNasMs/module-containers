@@ -263,5 +263,6 @@
   "composeImage.unknown": "Platform not verified",
   "composeImage.unavailable": "Local image ID not found",
   "composeFetchLaunch": "Download ({{count}}) and start",
-  "composeRegistry": "Checking registry"
+  "composeRegistry": "Checking registry",
+  "composeJobGone": "The task is no longer available. Check the project state."
 }

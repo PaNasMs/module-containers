@@ -263,5 +263,6 @@
   "composeImage.unknown": "Платформу не підтверджено",
   "composeImage.unavailable": "Локальний ID образу не знайдено",
   "composeFetchLaunch": "Завантажити ({{count}}) і запустити",
-  "composeRegistry": "Перевірка в реєстрі"
+  "composeRegistry": "Перевірка в реєстрі",
+  "composeJobGone": "Завдання більше не знайдено. Перевірте стан проєкту."
 }

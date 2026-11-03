@@ -503,7 +503,11 @@ func (e *Engine) State(ctx context.Context) (map[string]any, error) {
 	projects := []map[string]string{}
 	for _, v := range entries {
 		if v.IsDir() && !strings.HasPrefix(v.Name(), ".") {
-			projects = append(projects, map[string]string{"name": v.Name()})
+			project := map[string]string{"name": v.Name()}
+			if _, err := os.Stat(filepath.Join(e.root, "projects", v.Name(), "workspace.json")); err == nil {
+				project["editor"] = "compose"
+			}
+			projects = append(projects, project)
 		}
 	}
 	state["projects"] = projects
@@ -684,6 +688,28 @@ func (e *Engine) execute(ctx context.Context, a Action) error {
 		}
 		return e.saveProject(ctx, a)
 	case "project.start":
+		dir := filepath.Join(e.root, "projects", a.Target)
+		if _, err := os.Stat(filepath.Join(dir, "workspace.json")); err == nil {
+			workspace, _, err := readProject(dir)
+			if err != nil {
+				return err
+			}
+			host, err := e.docker.HostPlatform(ctx)
+			if err != nil {
+				return err
+			}
+			images, err := e.inspectProjectImages(ctx, workspace.Config["services"].(map[string]any), host)
+			if err != nil {
+				return err
+			}
+			workspace.ImageIDs, err = e.resolveProjectImages(ctx, a.ID, images)
+			if err != nil {
+				return err
+			}
+			if err = atomic(filepath.Join(dir, "workspace.json"), workspace); err != nil {
+				return err
+			}
+		}
 		return e.compose(ctx, a.Target, "up", "-d", "--wait", "--wait-timeout", "120")
 	case "project.stop":
 		return e.compose(ctx, a.Target, "stop", "--timeout", "30")

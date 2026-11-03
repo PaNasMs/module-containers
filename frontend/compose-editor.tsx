@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useBlocker, useNavigate } from "react-router-dom";
+import { useBlocker, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Notice, FolderPicker, Icon } from "@panasms/ui";
 import { managed } from "@panasms/operations";
@@ -161,6 +161,7 @@ function Editor({
   original: Draft;
   ready: boolean;
 }) {
+  const location = useLocation();
   const navigate = useNavigate(),
     cache = useQueryClient();
   const [draft, setDraft] = useState(original),
@@ -170,7 +171,9 @@ function Editor({
   const [plan, setPlan] = useState<Plan>(),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
-    [job, setJob] = useState("");
+    [job, setJob] = useState(
+      () => (name && new URLSearchParams(location.search).get("job")) || "",
+    );
   const op = useRef(""),
     allow = useRef(false);
   const parsed = useMemo(() => {
@@ -254,15 +257,28 @@ function Editor({
   const jobs = useQuery({
     queryKey: ["containers", "compose-job", job],
     queryFn: () =>
-      api<{ id: string; action: string; status: string; error?: string }[]>(
-        "jobs",
-      ),
+      api<
+        {
+          id: string;
+          action: string;
+          target: string;
+          status: string;
+          error?: string;
+        }[]
+      >("jobs"),
     enabled: !!job,
     refetchInterval: job ? 1500 : false,
   });
-  const result = jobs.data?.find((j) => j.id === job);
+  const result = jobs.data?.find((j) => j.id === job && j.target === target);
   useEffect(() => {
-    if (!result || !job) return;
+    if (!job) return;
+    if (!result) {
+      if (jobs.data && !jobs.isFetching && jobs.isFetchedAfterMount) {
+        setJob("");
+        setError(tr("composeJobGone"));
+      }
+      return;
+    }
     if (result.status === "succeeded") {
       allow.current = true;
       void cache.invalidateQueries({ queryKey: ["containers"] });
@@ -283,7 +299,7 @@ function Editor({
         })
         .catch(() => {});
     }
-  }, [result?.status, job]);
+  }, [result?.status, job, jobs.data, jobs.isFetching]);
   return (
     <section className="compose-editor">
       <div className="compose-line">
@@ -444,9 +460,7 @@ function Editor({
       )}
       <div className="compose-line">
         {job ? (
-          <p role="status">
-            {tr("composeRunning")}
-          </p>
+          <p role="status">{tr("composeRunning")}</p>
         ) : (
           <>
             {!plan ? (

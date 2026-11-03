@@ -263,5 +263,6 @@
   "composeImage.unknown": "Платформа не подтверждена",
   "composeImage.unavailable": "Локальный ID образа не найден",
   "composeFetchLaunch": "Скачать ({{count}}) и запустить",
-  "composeRegistry": "Проверка в реестре"
+  "composeRegistry": "Проверка в реестре",
+  "composeJobGone": "Задание больше не найдено. Проверьте состояние проекта."
 }

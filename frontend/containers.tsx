@@ -77,7 +77,7 @@ type State = {
     dataRoot: string;
   };
   containers: Container[];
-  projects: { name: string }[];
+  projects: { name: string;editor?:string }[];
   images: { Id: string; RepoTags: string[]; Size: number; platformCheck?: PlatformCheck }[];
   networks: { Id: string; Name: string; Driver: string }[];
   volumes: { Name: string; Driver: string }[];
@@ -1041,7 +1041,11 @@ function Page() {
     }
     setError("");
     try {
-      await api("action", { ...a, displayName: name, id: operationID() });
+      const id=operationID();
+      await api("action", { ...a, displayName: name, id });
+      if(a.action==="project.start" && state.data?.projects.some(p=>p.name===a.target&&p.editor==="compose")){
+        navigate("/containers/projects/"+a.target+"/edit?job="+encodeURIComponent(id))
+      }
       void q.invalidateQueries({ queryKey: jobsKey });
       toast(tr("accepted"));
     } catch (e) {
