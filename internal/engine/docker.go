@@ -15,6 +15,13 @@ import (
 	"time"
 )
 
+type dockerResponseError struct {
+	status  int
+	message string
+}
+
+func (e *dockerResponseError) Error() string { return "Docker: " + e.message }
+
 type Docker struct{ Client *http.Client }
 
 func NewDocker() *Docker {
@@ -60,7 +67,7 @@ func (d *Docker) Call(ctx context.Context, method, path string, body any, out an
 	if resp.StatusCode >= 300 {
 		var msg struct{ Message string }
 		_ = json.Unmarshal(raw, &msg)
-		return fmt.Errorf("Docker: %s", msg.Message)
+		return &dockerResponseError{resp.StatusCode, msg.Message}
 	}
 	if out != nil && len(raw) > 0 {
 		return json.Unmarshal(raw, out)

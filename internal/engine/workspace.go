@@ -23,6 +23,7 @@ type projectDraft struct {
 	Directory string `json:"directory"`
 }
 type savedWorkspace struct {
+	ImageIDs map[string]string `json:"imageIDs,omitempty"`
 	projectDraft
 	Config map[string]any `json:"config"`
 }
@@ -34,6 +35,7 @@ type servicePlan struct {
 	Change string   `json:"change"`
 }
 type projectPlan struct {
+	Images   []planImage   `json:"images"`
 	Services []servicePlan `json:"services"`
 	Token    string        `json:"token"`
 }
@@ -137,7 +139,7 @@ func (e *Engine) prepareProject(ctx context.Context, a Action) (savedWorkspace, 
 			return w, plan, errors.New(msgExternalProject)
 		}
 	}
-	var info struct{ DockerRootDir string }
+	var info struct{ DockerRootDir, OSType, Architecture string }
 	if err = e.docker.Call(ctx, "GET", "/info", nil, &info); err != nil {
 		return w, plan, err
 	}
@@ -254,7 +256,11 @@ func (e *Engine) prepareProject(ctx context.Context, a Action) (savedWorkspace, 
 		}
 	}
 	sort.Slice(plan.Services, func(i, j int) bool { return plan.Services[i].Name < plan.Services[j].Name })
-	plan.Token = fingerprint([]any{w, a.Target, revision})
+	plan.Images, err = e.inspectProjectImages(ctx, services, Platform{OS: info.OSType, Architecture: archName(info.Architecture)})
+	if err != nil {
+		return w, plan, err
+	}
+	plan.Token = fingerprint([]any{w, a.Target, revision, plan.Images})
 	return w, plan, nil
 }
 
@@ -267,6 +273,16 @@ func (e *Engine) applyProject(ctx context.Context, a Action) error {
 	if plan.Token != a.Plan {
 		return errors.New("The deployment plan changed. Check the project again.")
 	}
+	if a.Action == "project.pull" {
+		return e.pullMissing(ctx, a.ID, plan.Images)
+	}
+	w.ImageIDs = map[string]string{}
+	for _, item := range plan.Images {
+		if item.Status != "compatible" {
+			return errors.New("Download missing compatible images before starting this project")
+		}
+		w.ImageIDs[item.Reference] = item.ID
+	}
 	dir := filepath.Join(e.root, "projects", a.Target)
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -274,7 +290,7 @@ func (e *Engine) applyProject(ctx context.Context, a Action) error {
 	if err = atomic(filepath.Join(dir, "workspace.json"), w); err != nil {
 		return err
 	}
-	e.stage(a.ID, "Downloading images and starting services")
+	e.stage(a.ID, "Starting services from local images")
 	return e.compose(ctx, a.Target, "up", "-d", "--wait", "--wait-timeout", "120")
 }
 

@@ -411,7 +411,7 @@ func (e *Engine) submit(a Action) (Job, error) {
 	if !idRE.MatchString(a.ID) {
 		return Job{}, errors.New("Missing operation identifier")
 	}
-	valid := map[string]bool{"storage.move": true, "storage.recover": true, "setup": true, "engine.start": true, "project.save": true, "project.apply": true, "image.create": true, "image.pull": true, "project.start": true, "project.stop": true, "project.restart": true, "project.remove": true, "container.start": true, "container.stop": true, "container.restart": true, "container.remove": true, "network.create": true, "network.remove": true, "volume.create": true, "volume.remove": true, "image.remove": true}
+	valid := map[string]bool{"storage.move": true, "storage.recover": true, "setup": true, "engine.start": true, "project.save": true, "project.apply": true, "project.pull": true, "image.create": true, "image.pull": true, "project.start": true, "project.stop": true, "project.restart": true, "project.remove": true, "container.start": true, "container.stop": true, "container.restart": true, "container.remove": true, "network.create": true, "network.remove": true, "volume.create": true, "volume.remove": true, "image.remove": true}
 	if !valid[a.Action] {
 		return Job{}, errors.New("Unknown action")
 	}
@@ -611,10 +611,22 @@ func (e *Engine) compose(ctx context.Context, name string, args ...string) error
 	}
 	dir := filepath.Join(e.root, "projects", name)
 	configPath := filepath.Join(dir, "compose.json")
+	if len(args) > 0 && args[0] == "up" {
+		args = append(args, "--pull", "never", "--no-build")
+	}
+
 	if _, err := os.Stat(filepath.Join(dir, "workspace.json")); err == nil {
 		w, _, err := readProject(dir)
 		if err != nil {
 			return err
+		}
+		for _, entry := range w.Config["services"].(map[string]any) {
+			svc := entry.(map[string]any)
+			ref, _ := svc["image"].(string)
+			if id := w.ImageIDs[ref]; id != "" {
+				svc["image"] = id
+			}
+			svc["pull_policy"] = "never"
 		}
 		configPath = filepath.Join(dir, "runtime.compose.json")
 		if err = atomic(configPath, literalConfig(w.Config)); err != nil {
@@ -658,7 +670,7 @@ func (e *Engine) execute(ctx context.Context, a Action) error {
 	switch a.Action {
 	case "storage.move":
 		return e.move(ctx, a)
-	case "project.apply":
+	case "project.apply", "project.pull":
 		return e.applyProject(ctx, a)
 	case "project.save", "image.create":
 		if _, err := os.Stat(filepath.Join(e.root, "projects", a.Target, "workspace.json")); err == nil {

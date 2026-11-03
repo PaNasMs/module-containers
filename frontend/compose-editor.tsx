@@ -18,6 +18,7 @@ type Draft = {
   revision: string;
 };
 type Plan = {
+  images: { reference: string; status: string; id?: string }[];
   token: string;
   services: {
     name: string;
@@ -222,6 +223,11 @@ function Editor({
       setBusy(false);
     }
   }
+  const missing =
+    plan?.images.filter((i) => i.status === "missing").length ?? 0;
+  const unavailable = plan?.images.some(
+    (i) => !["missing", "compatible"].includes(i.status),
+  );
   async function apply() {
     if (!plan || busy) return;
     setBusy(true);
@@ -231,7 +237,12 @@ function Editor({
         v.toString(16).padStart(2, "0"),
       ).join("");
     try {
-      await api("action", { ...body, plan: plan.token, id: op.current });
+      await api("action", {
+        ...body,
+        action: missing ? "project.pull" : "project.apply",
+        plan: plan.token,
+        id: op.current,
+      });
       setJob(op.current);
       void cache.invalidateQueries({ queryKey: ["containers", "jobs"] });
     } catch (e) {
@@ -243,7 +254,9 @@ function Editor({
   const jobs = useQuery({
     queryKey: ["containers", "compose-job", job],
     queryFn: () =>
-      api<{ id: string; status: string; error?: string }[]>("jobs"),
+      api<{ id: string; action: string; status: string; error?: string }[]>(
+        "jobs",
+      ),
     enabled: !!job,
     refetchInterval: job ? 1500 : false,
   });
@@ -251,6 +264,11 @@ function Editor({
   useEffect(() => {
     if (!result || !job) return;
     if (result.status === "succeeded") {
+      if (result.action === "project.pull") {
+        setJob("");
+        void check();
+        return;
+      }
       allow.current = true;
       void cache.invalidateQueries({ queryKey: ["containers"] });
       navigate("/containers/projects/" + target, { replace: true });
@@ -409,6 +427,15 @@ function Editor({
       {plan && (
         <section className="compose-plan">
           <h3>{tr("composePlan")}</h3>
+          <p>{tr("composeLocalOnly")}</p>
+          <ul>
+            {plan.images.map((i) => (
+              <li key={i.reference}>
+                <strong>{i.reference}</strong> ·{" "}
+                {tr("composeImage." + i.status)}
+              </li>
+            ))}
+          </ul>
           {plan.services.map((s) => (
             <div key={s.name}>
               <strong>{s.name}</strong> · {tr("plan." + s.change)}{" "}
@@ -422,7 +449,9 @@ function Editor({
       )}
       <div className="compose-line">
         {job ? (
-          <p role="status">{tr("composeRunning")}</p>
+          <p role="status">
+            {tr(missing ? "composePulling" : "composeRunning")}
+          </p>
         ) : (
           <>
             {!plan ? (
@@ -437,11 +466,13 @@ function Editor({
             ) : (
               <Button
                 className="primary"
-                disabled={!ready || busy}
+                disabled={!ready || busy || unavailable}
                 onClick={() => void apply()}
               >
                 <Icon path={mdiPlay} />
-                {tr(name ? "composeApply" : "composeLaunch")}
+                {missing
+                  ? tr("composePullMissing", { count: String(missing) })
+                  : tr(name ? "composeApply" : "composeLaunch")}
               </Button>
             )}
           </>

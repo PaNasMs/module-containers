@@ -255,5 +255,13 @@
   "plan.create": "Новый сервис",
   "plan.update": "Конфигурация изменена",
   "plan.unchanged": "Без изменений конфигурации",
-  "plan.orphan": "Убран из конфигурации; существующий контейнер сохранится"
+  "plan.orphan": "Убран из конфигурации; существующий контейнер сохранится",
+  "composeLocalOnly": "При запуске используются только проверенные локальные образы, в том числе для тега latest.",
+  "composeImage.compatible": "Есть на NAS",
+  "composeImage.missing": "Нужно скачать",
+  "composeImage.incompatible": "Несовместимая платформа",
+  "composeImage.unknown": "Платформа не подтверждена",
+  "composeImage.unavailable": "Локальный ID образа не найден",
+  "composePullMissing": "Скачать недостающие ({{count}})",
+  "composePulling": "Скачиваем недостающие образы. После завершения план обновится."
 }

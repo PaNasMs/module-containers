@@ -130,7 +130,7 @@ function actionLabel(action: string) {
     "storage.move": "move",
     "storage.recover": "recover",
     "project.save": "addCompose",
-    "project.apply":"addCompose",
+    "project.apply":"addCompose", "project.pull":"pull",
     "image.create": "addImage",
     "image.pull": "pull",
   };
@@ -154,7 +154,7 @@ function completionMessage(job: Job) {
   return `${subject}: ${result}`;
 }
 const phaseLabel = (job: Job) =>
-  phaseKeys[job.stage] ? tr(phaseKeys[job.stage]) : actionLabel(job.action);
+  job.stage.startsWith("Downloading missing image: ")?tr("pull")+" · "+job.stage.slice("Downloading missing image: ".length):job.stage==="Starting services from local images"?tr("composeLaunch"):phaseKeys[job.stage] ? tr(phaseKeys[job.stage]) : actionLabel(job.action);
 const problem = (st: State["engine"]) =>
   st.problem.startsWith("Missing components:")
     ? tr("missing", { packages: st.missing.join(", ") })

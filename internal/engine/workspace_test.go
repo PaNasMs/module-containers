@@ -3,6 +3,10 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,4 +79,43 @@ func TestInstalledComposePlan(t *testing.T) {
 	if out.Compose != draft.Compose {
 		t.Fatal("original source changed")
 	}
+}
+
+func TestComposeImagePlanUsesLocalStore(t *testing.T) {
+	calls := 0
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		switch r.URL.Path {
+		case "/images/local/json":
+			io.WriteString(w, `{"Id":"sha256:demo","Os":"linux","Architecture":"arm64"}`)
+		case "/images/missing/json":
+			w.WriteHeader(404)
+			io.WriteString(w, `{"message":"absent"}`)
+		case "/images/broken/json":
+			w.WriteHeader(500)
+			io.WriteString(w, `{"message":"daemon unavailable"}`)
+		default:
+			t.Errorf("Unexpected read or registry access: %s", r.URL.Path)
+		}
+	}))
+	defer api.Close()
+	e := &Engine{docker: &Docker{Client: &http.Client{Transport: rewriteHost{api.URL}}}}
+	host := Platform{OS: "linux", Architecture: "arm64"}
+	svc := func(ref string) map[string]any { return map[string]any{"image": ref} }
+	images, err := e.inspectProjectImages(context.Background(), map[string]any{"one": svc("local"), "two": svc("local"), "three": svc("missing")}, host)
+	if err != nil || calls != 2 || len(images) != 2 || images[0].Status != "compatible" || images[1].Status != "missing" {
+		t.Fatal(images, calls, err)
+	}
+	if _, err = e.docker.planImage(context.Background(), "broken", host); err == nil {
+		t.Fatal("infrastructure error treated as missing")
+	}
+}
+
+type rewriteHost struct{ base string }
+
+func (r rewriteHost) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	parsed, _ := url.Parse(r.base)
+	clone.URL.Host = parsed.Host
+	return http.DefaultTransport.RoundTrip(clone)
 }
