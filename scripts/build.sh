@@ -2,6 +2,7 @@
 set -eu
 npm ci
 npm run build
+node tests/compose-model.mjs
 go test ./...
 go vet ./...
 mkdir -p dist/bin

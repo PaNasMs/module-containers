@@ -140,6 +140,9 @@ var searchRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_/-]*$`)
 var hashRE = regexp.MustCompile(`^(sha256:)?[a-f0-9]{12,64}$`)
 
 type Action struct {
+	Directory      string            `json:"directory"`
+	Revision       string            `json:"revision"`
+	Plan           string            `json:"plan"`
 	Environment    map[string]string `json:"environment"`
 	DisplayName    string            `json:"displayName,omitempty"`
 	WebPort        int               `json:"webPort"`
@@ -291,12 +294,26 @@ func (e *Engine) Handler(allowed map[string]bool) http.Handler {
 				failure(w, 400, errors.New("Invalid project"))
 				return
 			}
-			raw, err := os.ReadFile(filepath.Join(e.root, "projects", id, "compose.json"))
+			dir := filepath.Join(e.root, "projects", id)
+			project, revision, err := readProject(dir)
 			if err != nil {
 				failure(w, 404, errors.New("Managed project not found"))
-			} else {
-				output(w, 200, map[string]string{"compose": string(raw)})
+				return
 			}
+			_, managedErr := os.Stat(filepath.Join(dir, "workspace.json"))
+			resolved, _ := json.Marshal(project.Config)
+			output(w, 200, map[string]any{"compose": string(resolved), "source": project.Compose, "revision": revision, "env": project.Env, "directory": project.Directory, "workspace": managedErr == nil})
+		case r.URL.Path == "/project/check" && r.Method == "POST":
+			var a Action
+			if !decode(w, r, &a) {
+				return
+			}
+			_, plan, err := e.prepareProject(ctx, a)
+			if err != nil {
+				failure(w, 400, err)
+				return
+			}
+			output(w, 200, plan)
 		case r.URL.Path == "/ports/check" && r.Method == "POST":
 			var body struct {
 				Ports []Binding `json:"ports"`
@@ -394,7 +411,7 @@ func (e *Engine) submit(a Action) (Job, error) {
 	if !idRE.MatchString(a.ID) {
 		return Job{}, errors.New("Missing operation identifier")
 	}
-	valid := map[string]bool{"storage.move": true, "storage.recover": true, "setup": true, "engine.start": true, "project.save": true, "image.create": true, "image.pull": true, "project.start": true, "project.stop": true, "project.restart": true, "project.remove": true, "container.start": true, "container.stop": true, "container.restart": true, "container.remove": true, "network.create": true, "network.remove": true, "volume.create": true, "volume.remove": true, "image.remove": true}
+	valid := map[string]bool{"storage.move": true, "storage.recover": true, "setup": true, "engine.start": true, "project.save": true, "project.apply": true, "image.create": true, "image.pull": true, "project.start": true, "project.stop": true, "project.restart": true, "project.remove": true, "container.start": true, "container.stop": true, "container.restart": true, "container.remove": true, "network.create": true, "network.remove": true, "volume.create": true, "volume.remove": true, "image.remove": true}
 	if !valid[a.Action] {
 		return Job{}, errors.New("Unknown action")
 	}
@@ -486,7 +503,11 @@ func (e *Engine) State(ctx context.Context) (map[string]any, error) {
 	projects := []map[string]string{}
 	for _, v := range entries {
 		if v.IsDir() && !strings.HasPrefix(v.Name(), ".") {
-			projects = append(projects, map[string]string{"name": v.Name()})
+			project := map[string]string{"name": v.Name()}
+			if _, err := os.Stat(filepath.Join(e.root, "projects", v.Name(), "workspace.json")); err == nil {
+				project["editor"] = "compose"
+			}
+			projects = append(projects, project)
 		}
 	}
 	state["projects"] = projects
@@ -543,16 +564,29 @@ func (e *Engine) State(ctx context.Context) (map[string]any, error) {
 	return state, nil
 }
 
-type bounded struct{ b strings.Builder }
+type bounded struct {
+	b     strings.Builder
+	limit int
+}
 
 func (b *bounded) Write(p []byte) (int, error) {
 	n := len(p)
-	if b.b.Len() < 64<<10 {
-		b.b.Write(p[:min(len(p), (64<<10)-b.b.Len())])
+	limit := b.limit
+	if limit == 0 {
+		limit = 64 << 10
+	}
+	if b.b.Len() < limit {
+		b.b.Write(p[:min(len(p), limit-b.b.Len())])
 	}
 	return n, nil
 }
 func command(ctx context.Context, dir string, args ...string) (string, error) {
+	return runCommand(ctx, dir, false, args...)
+}
+func composeConfig(ctx context.Context, dir string, args ...string) (string, error) {
+	return runCommand(ctx, dir, true, args...)
+}
+func runCommand(ctx context.Context, dir string, config bool, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -560,10 +594,22 @@ func command(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd.Dir = dir
 	cmd.Env = []string{"PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/var/lib/panasms-containers", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive", "DOCKER_HOST=unix:///var/run/docker.sock", "COMPOSE_ANSI=never", "COMPOSE_PROGRESS=plain"}
 	var out bounded
+	if config {
+		out.limit = 2 << 20
+	}
 	cmd.Stdout = &out
 	var stderr bounded
 	cmd.Stderr = &stderr
 	err := cmd.Run()
+	if config && err != nil {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if message := strings.TrimSpace(stderr.b.String()); message != "" {
+			return "", fmt.Errorf("docker compose: %s", message)
+		}
+		return "", fmt.Errorf("docker compose: %w", err)
+	}
 	if err != nil {
 		return out.b.String(), fmt.Errorf("%s failed: %s", args[0], strings.TrimSpace(stderr.b.String()+"\n"+out.b.String()))
 	}
@@ -574,10 +620,33 @@ func (e *Engine) compose(ctx context.Context, name string, args ...string) error
 		return errors.New("Invalid project name")
 	}
 	dir := filepath.Join(e.root, "projects", name)
-	if _, err := os.Stat(filepath.Join(dir, "compose.json")); err != nil {
+	configPath := filepath.Join(dir, "compose.json")
+
+	if _, err := os.Stat(filepath.Join(dir, "workspace.json")); err == nil {
+		w, _, err := readProject(dir)
+		if err != nil {
+			return err
+		}
+		for _, entry := range w.Config["services"].(map[string]any) {
+			svc := entry.(map[string]any)
+			ref, _ := svc["image"].(string)
+			if id := w.ImageIDs[ref]; id != "" {
+				svc["image"] = id
+			}
+			svc["pull_policy"] = "never"
+		}
+		configPath = filepath.Join(dir, "runtime.compose.json")
+		if err = atomic(configPath, literalConfig(w.Config)); err != nil {
+			return err
+		}
+		if len(args) > 0 && args[0] == "up" {
+			args = append(args, "--pull", "never", "--no-build")
+		}
+	}
+	if _, err := os.Stat(configPath); err != nil {
 		return errors.New("This project is external. Manage its original Compose file outside this module.")
 	}
-	argv := []string{"docker", "compose", "--project-name", name, "--project-directory", dir, "-f", filepath.Join(dir, "compose.json")}
+	argv := []string{"docker", "compose", "--project-name", name, "--project-directory", dir, "-f", configPath}
 	argv = append(argv, args...)
 	_, err := command(ctx, dir, argv...)
 	return err
@@ -611,9 +680,36 @@ func (e *Engine) execute(ctx context.Context, a Action) error {
 	switch a.Action {
 	case "storage.move":
 		return e.move(ctx, a)
+	case "project.apply":
+		return e.applyProject(ctx, a)
 	case "project.save", "image.create":
+		if _, err := os.Stat(filepath.Join(e.root, "projects", a.Target, "workspace.json")); err == nil {
+			return errors.New("Edit this project in the Compose workspace")
+		}
 		return e.saveProject(ctx, a)
 	case "project.start":
+		dir := filepath.Join(e.root, "projects", a.Target)
+		if _, err := os.Stat(filepath.Join(dir, "workspace.json")); err == nil {
+			workspace, _, err := readProject(dir)
+			if err != nil {
+				return err
+			}
+			host, err := e.docker.HostPlatform(ctx)
+			if err != nil {
+				return err
+			}
+			images, err := e.inspectProjectImages(ctx, workspace.Config["services"].(map[string]any), host)
+			if err != nil {
+				return err
+			}
+			workspace.ImageIDs, err = e.resolveProjectImages(ctx, a.ID, images)
+			if err != nil {
+				return err
+			}
+			if err = atomic(filepath.Join(dir, "workspace.json"), workspace); err != nil {
+				return err
+			}
+		}
 		return e.compose(ctx, a.Target, "up", "-d", "--wait", "--wait-timeout", "120")
 	case "project.stop":
 		return e.compose(ctx, a.Target, "stop", "--timeout", "30")
@@ -792,10 +888,16 @@ func validateCompose(config map[string]any, protectedRoots ...string) error {
 		if !ok {
 			return errors.New("Invalid service")
 		}
-		for _, key := range []string{"privileged", "pid", "ipc", "uts", "userns_mode", "cgroup_parent", "cap_add", "devices", "device_cgroup_rules", "security_opt", "sysctls", "runtime", "volumes_from"} {
+		for _, key := range []string{"privileged", "pid", "ipc", "uts", "userns_mode", "cgroup_parent", "cap_add", "gpus", "devices", "device_cgroup_rules", "security_opt", "sysctls", "runtime", "volumes_from"} {
 			if value, ok := s[key]; ok && value != nil && fmt.Sprint(value) != "false" && fmt.Sprint(value) != "" && fmt.Sprint(value) != "[]" {
 				return fmt.Errorf("%s: %s requires host-level privileges and is not supported by the panel", name, key)
 			}
+		}
+		deploy, _ := s["deploy"].(map[string]any)
+		resources, _ := deploy["resources"].(map[string]any)
+		reservations, _ := resources["reservations"].(map[string]any)
+		if devices, _ := reservations["devices"].([]any); len(devices) > 0 {
+			return fmt.Errorf("%s: device reservations require host-level access", name)
 		}
 		if mode, _ := s["network_mode"].(string); mode != "" && mode != "bridge" && mode != "none" {
 			return fmt.Errorf("%s: host/container network namespaces are not supported", name)
