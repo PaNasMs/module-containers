@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { basicSetup } from "codemirror";
 import { EditorView } from "@codemirror/view";
 import { yaml } from "@codemirror/lang-yaml";
-import { Compartment } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { oneDark } from "@codemirror/theme-one-dark";
 export function ComposeCode({
   text,
@@ -24,6 +24,7 @@ export function ComposeCode({
       doc: text,
       extensions: [
         basicSetup,
+        EditorState.lineSeparator.of(text.includes("\r\n") ? "\r\n" : "\n"),
         yaml(),
         theme.of(appearance()),
         EditorView.lineWrapping,
@@ -33,7 +34,7 @@ export function ComposeCode({
           "aria-multiline": "true",
         }),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) notify.current(u.state.doc.toString());
+          if (u.docChanged) notify.current(u.state.sliceDoc());
         }),
       ],
     });
@@ -53,7 +54,7 @@ export function ComposeCode({
   }, []);
   useEffect(() => {
     const v = view.current;
-    if (v && v.state.doc.toString() !== text)
+    if (v && v.state.sliceDoc() !== text)
       v.dispatch({
         changes: { from: 0, to: v.state.doc.length, insert: text },
       });

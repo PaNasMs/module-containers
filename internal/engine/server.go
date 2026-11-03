@@ -598,7 +598,13 @@ func runCommand(ctx context.Context, dir string, config bool, args ...string) (s
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if config && err != nil {
-		return "", fmt.Errorf("docker compose: %s", strings.TrimSpace(stderr.b.String()))
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if message := strings.TrimSpace(stderr.b.String()); message != "" {
+			return "", fmt.Errorf("docker compose: %s", message)
+		}
+		return "", fmt.Errorf("docker compose: %w", err)
 	}
 	if err != nil {
 		return out.b.String(), fmt.Errorf("%s failed: %s", args[0], strings.TrimSpace(stderr.b.String()+"\n"+out.b.String()))

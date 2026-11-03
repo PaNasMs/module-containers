@@ -61,9 +61,9 @@ export function Builder({
   const name = names.includes(selected) ? selected : names[0],
     svc = services[name] ?? {},
     base = ["services", name];
-  function set(path: Path, value: unknown) {
+  function set(path: Path, value: unknown, original = text) {
     try {
-      const result = patchCompose(text, path, value);
+      const result = patchCompose(original, path, value);
       change(result);
       report("");
       return true;
@@ -121,6 +121,27 @@ export function Builder({
     const rows = svc[key] ?? [],
       path = [...base, key];
     if (!Array.isArray(rows)) return advanced;
+    const volumes = Object.keys(parsed.model.volumes ?? {});
+    function addRow() {
+      const source = volumes[0] ?? "data";
+      const row =
+        key === "ports"
+          ? { target: 80, published: "8080" }
+          : { type: "volume", source, target: "/data" };
+      try {
+        const draft =
+          key === "volumes" && !volumes.length
+            ? patchCompose(text, ["volumes", source], {})
+            : text;
+        set(
+          svc[key] ? [...path, rows.length] : path,
+          svc[key] ? row : [row],
+          draft,
+        );
+      } catch (e) {
+        report(t("composeEditYaml") + " " + (e as Error).message);
+      }
+    }
     return (
       <>
         {rows.map((row: any, i: number) => {
@@ -203,8 +224,24 @@ export function Builder({
                       ))}
                     </select>
                   </label>
-                  {field("composeSource", value.source, (v) =>
-                    update("source", v),
+                  {value.type === "volume" ? (
+                    <label>
+                      {t("composeSource")}
+                      <select
+                        value={value.source ?? ""}
+                        onChange={(e) => update("source", e.target.value)}
+                      >
+                        {[...new Set([value.source ?? "", ...volumes])].map(
+                          (n) => (
+                            <option key={n}>{n}</option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                  ) : (
+                    field("composeSource", value.source, (v) =>
+                      update("source", v),
+                    )
                   )}
                   {field("containerPath", value.target, (v) =>
                     update("target", v),
@@ -223,20 +260,7 @@ export function Builder({
             </div>
           );
         })}
-        <Button
-          onClick={() =>
-            set(
-              svc[key] ? [...path, rows.length] : path,
-              svc[key]
-                ? key === "ports"
-                  ? { target: 80, published: "8080" }
-                  : { type: "volume", source: "data", target: "/data" }
-                : key === "ports"
-                  ? [{ target: 80, published: "8080" }]
-                  : [{ type: "volume", source: "data", target: "/data" }],
-            )
-          }
-        >
+        <Button onClick={addRow}>
           {t(key === "ports" ? "addPort" : "addMount")}
         </Button>
       </>
