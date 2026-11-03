@@ -256,12 +256,12 @@
   "plan.update": "Configuration changed",
   "plan.unchanged": "Configuration unchanged",
   "plan.orphan": "Removed from configuration; existing container retained",
-  "composeLocalOnly": "Starting uses only the checked local images, including latest tags.",
+  "composeLocalOnly": "Local images are reused. Before starting, the NAS checks all missing images in their registries and downloads them.",
   "composeImage.compatible": "Available on NAS",
   "composeImage.missing": "Download required",
   "composeImage.incompatible": "Incompatible platform",
   "composeImage.unknown": "Platform not verified",
   "composeImage.unavailable": "Local image ID not found",
-  "composePullMissing": "Download missing ({{count}})",
-  "composePulling": "Downloading missing images. The plan will refresh when finished."
+  "composeFetchLaunch": "Download ({{count}}) and start",
+  "composeRegistry": "Checking registry"
 }

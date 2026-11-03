@@ -273,15 +273,9 @@ func (e *Engine) applyProject(ctx context.Context, a Action) error {
 	if plan.Token != a.Plan {
 		return errors.New("The deployment plan changed. Check the project again.")
 	}
-	if a.Action == "project.pull" {
-		return e.pullMissing(ctx, a.ID, plan.Images)
-	}
-	w.ImageIDs = map[string]string{}
-	for _, item := range plan.Images {
-		if item.Status != "compatible" {
-			return errors.New("Download missing compatible images before starting this project")
-		}
-		w.ImageIDs[item.Reference] = item.ID
+	w.ImageIDs, err = e.resolveProjectImages(ctx, a.ID, plan.Images)
+	if err != nil {
+		return err
 	}
 	dir := filepath.Join(e.root, "projects", a.Target)
 	if err = os.MkdirAll(dir, 0700); err != nil {

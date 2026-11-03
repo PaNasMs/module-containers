@@ -74,20 +74,56 @@ func (e *Engine) inspectProjectImages(ctx context.Context, services map[string]a
 	sort.Slice(images, func(i, j int) bool { return images[i].Reference < images[j].Reference })
 	return images, nil
 }
-func (e *Engine) pullMissing(ctx context.Context, id string, images []planImage) error {
+
+// Validate every missing reference before downloading the first one. An unavailable
+// registry or incompatible image must leave the project draft and services alone.
+func (e *Engine) resolveProjectImages(ctx context.Context, job string, images []planImage) (map[string]string, error) {
+	host, err := e.docker.HostPlatform(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, image := range images {
-		if image.Status != "compatible" && image.Status != "missing" {
-			return errors.New(msgImageIncompatible)
+		switch image.Status {
+		case "compatible":
+			continue
+		case "missing":
+			e.stage(job, "Checking registry: "+image.Reference)
+			remote, err := e.docker.RemotePlatform(ctx, image.Reference)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", image.Reference, err)
+			}
+			if remote.Status != "incompatible" {
+				continue
+			}
 		}
+		return nil, fmt.Errorf("%s: %s", image.Reference, msgImageIncompatible)
 	}
 	for _, image := range images {
 		if image.Status != "missing" {
 			continue
 		}
-		e.stage(id, "Downloading missing image: "+image.Reference)
-		if _, err := command(ctx, "", "docker", "pull", image.Reference); err != nil {
-			return err
+		e.stage(job, "Downloading missing image: "+image.Reference)
+		platform := host.OS + "/" + host.Architecture
+		if host.Variant != "" {
+			platform += "/" + host.Variant
+		}
+		if _, err := command(ctx, "", "docker", "pull", "--platform", platform, image.Reference); err != nil {
+			return nil, fmt.Errorf("%s: %w", image.Reference, err)
 		}
 	}
-	return nil
+	ids := map[string]string{}
+	for _, image := range images {
+		local, err := e.docker.planImage(ctx, image.Reference, host)
+		if err != nil {
+			return nil, err
+		}
+		if local.Status != "compatible" {
+			return nil, fmt.Errorf("%s: %s", image.Reference, msgImageIncompatible)
+		}
+		if image.ID != "" && image.ID != local.ID {
+			return nil, fmt.Errorf("%s: local image changed; check the project again", image.Reference)
+		}
+		ids[image.Reference] = local.ID
+	}
+	return ids, nil
 }

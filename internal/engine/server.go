@@ -411,7 +411,7 @@ func (e *Engine) submit(a Action) (Job, error) {
 	if !idRE.MatchString(a.ID) {
 		return Job{}, errors.New("Missing operation identifier")
 	}
-	valid := map[string]bool{"storage.move": true, "storage.recover": true, "setup": true, "engine.start": true, "project.save": true, "project.apply": true, "project.pull": true, "image.create": true, "image.pull": true, "project.start": true, "project.stop": true, "project.restart": true, "project.remove": true, "container.start": true, "container.stop": true, "container.restart": true, "container.remove": true, "network.create": true, "network.remove": true, "volume.create": true, "volume.remove": true, "image.remove": true}
+	valid := map[string]bool{"storage.move": true, "storage.recover": true, "setup": true, "engine.start": true, "project.save": true, "project.apply": true, "image.create": true, "image.pull": true, "project.start": true, "project.stop": true, "project.restart": true, "project.remove": true, "container.start": true, "container.stop": true, "container.restart": true, "container.remove": true, "network.create": true, "network.remove": true, "volume.create": true, "volume.remove": true, "image.remove": true}
 	if !valid[a.Action] {
 		return Job{}, errors.New("Unknown action")
 	}
@@ -670,7 +670,7 @@ func (e *Engine) execute(ctx context.Context, a Action) error {
 	switch a.Action {
 	case "storage.move":
 		return e.move(ctx, a)
-	case "project.apply", "project.pull":
+	case "project.apply":
 		return e.applyProject(ctx, a)
 	case "project.save", "image.create":
 		if _, err := os.Stat(filepath.Join(e.root, "projects", a.Target, "workspace.json")); err == nil {

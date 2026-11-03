@@ -239,7 +239,7 @@ function Editor({
     try {
       await api("action", {
         ...body,
-        action: missing ? "project.pull" : "project.apply",
+        action: "project.apply",
         plan: plan.token,
         id: op.current,
       });
@@ -264,11 +264,6 @@ function Editor({
   useEffect(() => {
     if (!result || !job) return;
     if (result.status === "succeeded") {
-      if (result.action === "project.pull") {
-        setJob("");
-        void check();
-        return;
-      }
       allow.current = true;
       void cache.invalidateQueries({ queryKey: ["containers"] });
       navigate("/containers/projects/" + target, { replace: true });
@@ -450,7 +445,7 @@ function Editor({
       <div className="compose-line">
         {job ? (
           <p role="status">
-            {tr(missing ? "composePulling" : "composeRunning")}
+            {tr("composeRunning")}
           </p>
         ) : (
           <>
@@ -471,7 +466,7 @@ function Editor({
               >
                 <Icon path={mdiPlay} />
                 {missing
-                  ? tr("composePullMissing", { count: String(missing) })
+                  ? tr("composeFetchLaunch", { count: String(missing) })
                   : tr(name ? "composeApply" : "composeLaunch")}
               </Button>
             )}

@@ -256,12 +256,12 @@
   "plan.update": "Конфигурация изменена",
   "plan.unchanged": "Без изменений конфигурации",
   "plan.orphan": "Убран из конфигурации; существующий контейнер сохранится",
-  "composeLocalOnly": "При запуске используются только проверенные локальные образы, в том числе для тега latest.",
+  "composeLocalOnly": "Локальные образы используются сразу. Перед запуском NAS проверит все недостающие в реестрах и скачает их.",
   "composeImage.compatible": "Есть на NAS",
   "composeImage.missing": "Нужно скачать",
   "composeImage.incompatible": "Несовместимая платформа",
   "composeImage.unknown": "Платформа не подтверждена",
   "composeImage.unavailable": "Локальный ID образа не найден",
-  "composePullMissing": "Скачать недостающие ({{count}})",
-  "composePulling": "Скачиваем недостающие образы. После завершения план обновится."
+  "composeFetchLaunch": "Скачать ({{count}}) и запустить",
+  "composeRegistry": "Проверка в реестре"
 }

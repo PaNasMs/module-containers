@@ -256,12 +256,12 @@
   "plan.update": "Конфігурацію змінено",
   "plan.unchanged": "Без змін конфігурації",
   "plan.orphan": "Вилучено з конфігурації; наявний контейнер залишиться",
-  "composeLocalOnly": "Для запуску використовуються лише перевірені локальні образи, зокрема для тегу latest.",
+  "composeLocalOnly": "Локальні образи використовуються одразу. Перед запуском NAS перевірить усі відсутні в реєстрах і завантажить їх.",
   "composeImage.compatible": "Є на NAS",
   "composeImage.missing": "Потрібно завантажити",
   "composeImage.incompatible": "Несумісна платформа",
   "composeImage.unknown": "Платформу не підтверджено",
   "composeImage.unavailable": "Локальний ID образу не знайдено",
-  "composePullMissing": "Завантажити відсутні ({{count}})",
-  "composePulling": "Завантажуємо відсутні образи. Після завершення план оновиться."
+  "composeFetchLaunch": "Завантажити ({{count}}) і запустити",
+  "composeRegistry": "Перевірка в реєстрі"
 }

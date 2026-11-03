@@ -119,3 +119,32 @@ func (r rewriteHost) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone.URL.Host = parsed.Host
 	return http.DefaultTransport.RoundTrip(clone)
 }
+
+func TestUnavailableRegistryLeavesProjectUnstarted(t *testing.T) {
+	var verified []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/info":
+			io.WriteString(w, `{"OSType":"linux","Architecture":"aarch64"}`)
+		case "/distribution/first/json":
+			verified = append(verified, "first")
+			io.WriteString(w, `{"Platforms":[{"os":"linux","architecture":"arm64"}]}`)
+		case "/distribution/absent/json":
+			verified = append(verified, "absent")
+			w.WriteHeader(404)
+			io.WriteString(w, `{"message":"manifest unknown"}`)
+		default:
+			t.Errorf("unexpected endpoint %s", r.URL.Path)
+		}
+	}))
+	defer api.Close()
+	e, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.docker.Client = &http.Client{Transport: rewriteHost{api.URL}}
+	_, err = e.resolveProjectImages(context.Background(), "qa", []planImage{{Reference: "first", Status: "missing"}, {Reference: "absent", Status: "missing"}})
+	if err == nil || !strings.Contains(err.Error(), "absent: Docker: manifest unknown") || strings.Join(verified, ",") != "first,absent" {
+		t.Fatal(verified, err)
+	}
+}
