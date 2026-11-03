@@ -143,8 +143,18 @@ func TestUnavailableRegistryLeavesProjectUnstarted(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.docker.Client = &http.Client{Transport: rewriteHost{api.URL}}
-	_, err = e.resolveProjectImages(context.Background(), "qa", []planImage{{Reference: "first", Status: "missing"}, {Reference: "absent", Status: "missing"}})
-	if err == nil || !strings.Contains(err.Error(), "absent: Docker: manifest unknown") || strings.Join(verified, ",") != "first,absent" {
+	_, err = e.resolveProjectImages(context.Background(), "qa", []planImage{{Reference: "absent", Status: "missing"}, {Reference: "first", Status: "missing"}, {Reference: "wrong-arch", Status: "incompatible"}})
+	if err == nil || !strings.Contains(err.Error(), "absent: Docker: manifest unknown") || !strings.Contains(err.Error(), "wrong-arch") || strings.Join(verified, ",") != "absent,first" {
 		t.Fatal(verified, err)
+	}
+}
+
+func TestComposeCannotReserveHostDevices(t *testing.T) {
+	config := map[string]any{}
+	if err := json.Unmarshal([]byte(`{"services":{"gpu":{"image":"app","deploy":{"resources":{"reservations":{"devices":[{"capabilities":["gpu"]}]}}}}}}`), &config); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCompose(config); err == nil {
+		t.Fatal("accepted a host device reservation")
 	}
 }

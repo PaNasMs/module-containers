@@ -888,10 +888,16 @@ func validateCompose(config map[string]any, protectedRoots ...string) error {
 		if !ok {
 			return errors.New("Invalid service")
 		}
-		for _, key := range []string{"privileged", "pid", "ipc", "uts", "userns_mode", "cgroup_parent", "cap_add", "devices", "device_cgroup_rules", "security_opt", "sysctls", "runtime", "volumes_from"} {
+		for _, key := range []string{"privileged", "pid", "ipc", "uts", "userns_mode", "cgroup_parent", "cap_add", "gpus", "devices", "device_cgroup_rules", "security_opt", "sysctls", "runtime", "volumes_from"} {
 			if value, ok := s[key]; ok && value != nil && fmt.Sprint(value) != "false" && fmt.Sprint(value) != "" && fmt.Sprint(value) != "[]" {
 				return fmt.Errorf("%s: %s requires host-level privileges and is not supported by the panel", name, key)
 			}
+		}
+		deploy, _ := s["deploy"].(map[string]any)
+		resources, _ := deploy["resources"].(map[string]any)
+		reservations, _ := resources["reservations"].(map[string]any)
+		if devices, _ := reservations["devices"].([]any); len(devices) > 0 {
+			return fmt.Errorf("%s: device reservations require host-level access", name)
 		}
 		if mode, _ := s["network_mode"].(string); mode != "" && mode != "bridge" && mode != "none" {
 			return fmt.Errorf("%s: host/container network namespaces are not supported", name)

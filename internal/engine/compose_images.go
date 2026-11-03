@@ -82,7 +82,11 @@ func (e *Engine) resolveProjectImages(ctx context.Context, job string, images []
 	if err != nil {
 		return nil, err
 	}
+	var failures []error
 	for _, image := range images {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		switch image.Status {
 		case "compatible":
 			continue
@@ -90,13 +94,17 @@ func (e *Engine) resolveProjectImages(ctx context.Context, job string, images []
 			e.stage(job, "Checking registry: "+image.Reference)
 			remote, err := e.docker.RemotePlatform(ctx, image.Reference)
 			if err != nil {
-				return nil, fmt.Errorf("%s: %w", image.Reference, err)
+				failures = append(failures, fmt.Errorf("%s: %w", image.Reference, err))
+				continue
 			}
 			if remote.Status != "incompatible" {
 				continue
 			}
 		}
-		return nil, fmt.Errorf("%s: %s", image.Reference, msgImageIncompatible)
+		failures = append(failures, fmt.Errorf("%s: %s", image.Reference, msgImageIncompatible))
+	}
+	if err := errors.Join(failures...); err != nil {
+		return nil, err
 	}
 	for _, image := range images {
 		if image.Status != "missing" {
