@@ -7,7 +7,7 @@ sources, pulls images, creates containers from forms and manages images, network
 volumes and the Docker data directory. Project website:
 <https://panasms.github.io/>.
 
-The module is a preview. The current version is 0.1.17. It requires PaNasMs core
+The module is a preview. The current version is 0.2.0. It requires PaNasMs core
 `>=0.2.15,<0.3.0` and module API 1, and is published for ARM64 and AMD64.
 
 ## Install
@@ -51,7 +51,9 @@ check this. Docker access is root-level access to the host, not a sandbox.
 
 The UI is available in English, Russian and Ukrainian.
 
-Deploying new Compose projects is hidden while that workflow is under review. The
+Open **Compose projects** to create a project in the service builder, paste YAML, or import a YAML file and its sibling .env from a local NAS folder through Files. Imported files are copied into a private managed workspace. The selected folder is the base for relative bind mounts. Editing either representation updates the same draft. The builder changes individual YAML fields and preserves comments and unknown options. Shared anchor definitions can be edited in YAML.
+
+**Check configuration** resolves the draft with the installed Compose CLI and shows the services, images, mounts and ports. **Start project** (or **Apply and start**) rechecks the reviewed plan before starting a background operation. Stopping retains data. The project page links to individual service logs. External projects are listed for inspection. Existing managed projects without original source open with their previously stored resolved configuration. The
 Applications tab is reserved for a future catalog and is hidden; old
 `/containers/apps` links redirect to `/containers/containers`.
 

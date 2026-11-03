@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useBlocker } from "react-router-dom";
 import * as Tabs from "@radix-ui/react-tabs";
-import * as Dialog from "@radix-ui/react-dialog";
 import {
   mdiDocker,
   mdiPlus,
@@ -32,7 +31,6 @@ import {
   Button,
   Icon,
   Notice,
-  DialogContent,
   FolderPicker,
   bytes,
   SectionNav,
@@ -44,6 +42,8 @@ import en from "./locales/en.json";
 import ru from "./locales/ru.json";
 import uk from "./locales/uk.json";
 import "./containers.css";
+import {Modal} from "./container-dialog";
+import {ComposeEditor} from "./compose-editor";
 registerTranslations("containers", { en, ru, uk });
 const tr = translator("containers");
 registerServerMessages("containers", Object.entries(en).filter(([key]) => key.startsWith("recovery.") || key.startsWith("server.")).map(([key, value]) => ({ key, en: value })));
@@ -130,6 +130,7 @@ function actionLabel(action: string) {
     "storage.move": "move",
     "storage.recover": "recover",
     "project.save": "addCompose",
+    "project.apply":"addCompose",
     "image.create": "addImage",
     "image.pull": "pull",
   };
@@ -284,51 +285,6 @@ function TaskContribution() {
       <h3>{tr("title")}</h3>
       <Tasks />
     </section>
-  );
-}
-function Modal({
-  title,
-  children,
-  footer,
-  close,
-  busy = false,
-  dirty = false,
-  compact = false,
-  message,
-}: {
-  message?: string;
-  title: string;
-  children: ReactNode;
-  footer?: ReactNode;
-  close: () => void;
-  busy?: boolean;
-  dirty?: boolean;
-  compact?: boolean;
-}) {
-  return (
-    <Dialog.Root
-      open
-      onOpenChange={(v) => {
-        if (!v) close();
-      }}
-    >
-      <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
-        <DialogContent
-          className="settings-dialog containers-dialog"
-          aria-describedby={undefined}
-          variant={compact ? "compact" : "form"}
-          intent={compact ? "confirm" : "edit"}
-          dirty={dirty}
-          busy={busy}
-          message={message ?? tr("submitting")}
-          header={<Dialog.Title>{title}</Dialog.Title>}
-          footer={footer ? <div className="dialog-actions">{footer}</div> : undefined}
-        >
-          {children}
-        </DialogContent>
-      </Dialog.Portal>
-    </Dialog.Root>
   );
 }
 function Confirmation({
@@ -679,32 +635,16 @@ function Create({
     else nameInput.current?.focus();
   }, [refused]);
   const [image, setImage] = useState("");
-  const [compose, setCompose] = useState("");
-  const [variables, setVariables] = useState("");
   const [imageAction, setImageAction] = useState<Action|null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const q = useQueryClient();
   const state = useStateData();
   const id = useRef(operationID());
-  const saved = useQuery({
-    queryKey: ["containers", "project", name],
-    queryFn: () =>
-      api<{ compose: string }>("project?id=" + encodeURIComponent(name)),
-    enabled: !!name && kind === "compose",
-  });
-  const dirty = !!(
-    target !== name || image || compose !== (saved.data?.compose ?? "") ||
-    variables || imageAction
-  );
-  useEffect(() => {
-    if (saved.data) setCompose(saved.data.compose);
-  }, [saved.data]);
+  const dirty = !!(target !== name || image || imageAction);
   async function submit() {
     setError("");
     let a: Action = { action: kind + ".create", target };
-    if (kind === "compose")
-      a = { action: "project.save", target, compose, env: variables };
     if (kind === "image") { if (!imageAction) return; a = {...imageAction, target}; }
     if (kind === "pull") a = { action: "image.pull", target: image, image };
     setBusy(true);
@@ -740,9 +680,7 @@ function Create({
         name
           ? `${tr("edit")} · ${name}`
           : tr(
-              kind === "compose"
-                ? "addCompose"
-                : kind === "image"
+              kind === "image"
                   ? "addImage"
                   : kind === "pull"
                     ? "pull"
@@ -761,7 +699,7 @@ function Create({
             <Button
               className="primary"
               onClick={() => void submit()}
-              disabled={(kind !== "pull" && !/^[a-z][a-z0-9_-]{1,47}$/.test(target)) || busy || !!saved.error || saved.isFetching || (kind === "pull" && (!image.trim() || image.endsWith(":"))) || (kind === "image" && !imageAction)}
+              disabled={(kind !== "pull" && !/^[a-z][a-z0-9_-]{1,47}$/.test(target)) || busy || (kind === "pull" && (!image.trim() || image.endsWith(":"))) || (kind === "image" && !imageAction)}
             >
               {tr(kind === "pull" ? "pull" : "apply")}
             </Button>
@@ -777,7 +715,6 @@ function Create({
           </Notice>
         </div>
       )}
-      {saved.error && <Notice error>{saved.error.message}</Notice>}
         <div className="containers-form">
           {kind !== "pull" && (
             <label className="field">
@@ -806,48 +743,6 @@ function Create({
           {kind === "pull" && <ImagePicker value={image} onChange={setImage} />}
           {kind === "image" && <LocalImageEditor onChange={acceptImage.current} initial={editorSeed.current} imageLocked={false} problems={problems} />}
           {kind === "pull" && <p className="muted">{tr("imagePullHint")}</p>}
-          {kind === "compose" && (
-            <>
-              <label className="field">
-                {tr("file")}
-                <input
-                  type="file"
-                  accept=".yml,.yaml,.json"
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0];
-                    if (f) {
-                      if (f.size > 256 * 1024) {
-                        setError("Compose file exceeds 256 KiB");
-                        return;
-                      }
-                      setCompose(await f.text());
-                    }
-                  }}
-                />
-              </label>
-              <label className="field">
-                {tr("compose")}
-                <textarea
-                  rows={12}
-                  value={compose}
-                  onChange={(e) => setCompose(e.target.value)}
-                  spellCheck={false}
-                />
-                <small>{tr("composeHint")}</small>
-              </label>
-            </>
-          )}
-          {kind === "compose" && (
-            <label className="field">
-              {tr("env")}
-              <textarea
-                rows={3}
-                value={variables}
-                onChange={(e) => setVariables(e.target.value)}
-                spellCheck={false}
-              />
-            </label>
-          )}
         </div>
     </Modal>
   );
@@ -1043,7 +938,7 @@ function ContainerPage({id,view,controls}:{id:string;view:string;controls:(type:
 function ContainerConfiguration({container}:{container:Container}) {
   const project=container.Labels["com.docker.compose.project"];
   const service=container.Labels["com.docker.compose.service"];
-  const saved=useQuery({queryKey:["containers","project-form",project],queryFn:()=>api<{compose:string}>("project?id="+encodeURIComponent(project)),staleTime:Infinity});
+  const saved=useQuery({queryKey:["containers","project-form",project],queryFn:()=>api<{compose:string;workspace:boolean}>("project?id="+encodeURIComponent(project)),staleTime:Infinity});
   const [draft,setDraft]=useState<Action|null>(null);
   const baseline=useRef<string|null>(null);
   const acceptDraft=(value:Action|null)=>{if(value&&baseline.current===null)baseline.current=JSON.stringify(value);setDraft(value)};
@@ -1060,6 +955,7 @@ function ContainerConfiguration({container}:{container:Container}) {
   const q=useQueryClient();
   if(saved.isPending)return <p>{tr("loading")}</p>;
   if(saved.error)return <Notice error>{saved.error.message}</Notice>;
+  if(saved.data?.workspace)return <Link className="button" to={`/containers/projects/${project}/edit`}>{tr("edit")}</Link>;
   let composeDocument: any;
   try { composeDocument = JSON.parse(saved.data!.compose); }
   catch { return <Notice error>{tr("configurationUnavailable")}</Notice>; }
@@ -1236,6 +1132,7 @@ function Page() {
           >
             <Icon path={mdiCogOutline} />
           </Link>
+          {tab==="projects"&&!detailID&&<ActionIcon icon={mdiPlus} label={tr("composeNew")} disabled={!ready} onClick={()=>navigate("/containers/projects/create/new")}/>}
           {tab === "containers" && !detailID && (
             <>
               <ActionIcon
@@ -1311,6 +1208,7 @@ function Page() {
           onChange={(value) => navigate("/containers/" + value)}
           items={[
             { id: "containers", title: tr("containers"), icon: mdiDocker },
+            { id:"projects",title:tr("projects"),icon:mdiCodeBraces },
             { id: "images", title: tr("images"), icon: mdiLayersOutline },
             { id: "networks", title: tr("networks"), icon: mdiLan },
             { id: "volumes", title: tr("volumes"), icon: mdiDatabaseOutline },
@@ -1322,6 +1220,18 @@ function Page() {
             <p role="status">{tr("loading")}</p>
           ) : tab === "containers" && detailID ? (
             <ContainerPage key={detailID} id={detailID} view={loc.pathname.split("/")[4] || "details"} controls={controls}/>
+          ) : tab==="projects" ? (
+            loc.pathname.endsWith("/edit") || loc.pathname.endsWith("/create/new") ?
+            <ComposeEditor key={loc.pathname} name={loc.pathname.endsWith("/edit")?detailID:undefined} ready={ready}/> :
+            <div className="container-collection"><h2>{detailID||tr("projects")}</h2>{detailID&&<Link to="/containers/projects">← {tr("projects")}</Link>}
+            {[...allProjects].filter(n=>!detailID||n===detailID).sort().map(n=>{
+              const members=state.data!.containers.filter(c=>c.Labels["com.docker.compose.project"]===n);
+              const owned=state.data!.projects.some(p=>p.name===n), running=members.filter(c=>c.State==="running").length;
+              return <section className="container-project-group" key={n}><header className="container-project-bar">
+              <div className="container-project-title"><Icon path={mdiCodeBraces}/><Link to={"/containers/projects/"+n}>{n}</Link> <span>{tr("composeCount",{running:String(running),count:String(members.length)})}</span>{!owned&&<span>{tr("external")}</span>}</div>
+              {members.flatMap(c=>c.Ports.filter(p=>p.Type==="tcp"&&p.PublicPort&&String(p.PublicPort)===c.Labels["com.panasms.web-port"]).slice(0,1).map(p=><a key={c.Id} className="button icon-only" title={tr("open")+" · "+c.Labels["com.docker.compose.service"]} href={`http://${location.hostname}:${p.PublicPort}/`} rel="noopener noreferrer" target="_blank"><Icon path={mdiOpenInNew}/></a>))}{owned&&<div className="containers-actions"><ActionIcon icon={mdiCodeBraces} label={tr("edit")+" · "+n} disabled={!ready} onClick={()=>navigate("/containers/projects/"+n+"/edit")}/>{controls("project",n,n,!!members.length&&running===members.length,running>0)}</div>}</header>
+              {detailID&&<div className="containers-table-wrap"><table aria-label={tr("containers")}><tbody>{members.map(c=><tr key={c.Id}><th><Link to={"/containers/containers/"+c.Id+"/details"}>{c.Labels["com.docker.compose.service"]}</Link></th><td>{c.Image}</td><td>{tr(c.State)}</td><td><Link to={"/containers/containers/"+c.Id+"/logs"}>{tr("logs")}</Link></td></tr>)}</tbody></table></div>}</section>
+            })}{(!allProjects.size||detailID&&!allProjects.has(detailID))&&<p>{tr("empty")}</p>}</div>
           ) : tab === "tasks" ? (
             <Tasks />
           ) : tab === "containers" ? (
@@ -1332,9 +1242,9 @@ function Page() {
                 if (members.length === 1) return <div className="containers-table-wrap" key={name}><table aria-label={name}><tbody>{members.map(containerRow)}</tbody></table></div>;
                 return <section className="container-project-group" key={name} aria-label={name}>
                   <header className="container-project-bar">
-                    <div className="container-project-title"><Icon path={mdiCodeBraces} size={20} /><strong>{name}</strong><span className="muted">{tr(owned ? "owned" : "external")}</span></div>
+                    <div className="container-project-title"><Icon path={mdiCodeBraces} size={20} /><Link to={"/containers/projects/"+name}>{name}</Link><span className="muted">{tr(owned ? "owned" : "external")}</span></div>
                     {owned && <div className="containers-actions">
-                      <ActionIcon icon={mdiCodeBraces} label={`${tr("edit")} · ${name}`} disabled={!ready} onClick={() => setCreate({ kind: "compose", name })} />
+                      <ActionIcon icon={mdiCodeBraces} label={`${tr("edit")} · ${name}`} disabled={!ready} onClick={() => navigate("/containers/projects/"+name+"/edit")} />
                       {controls("project", name, name, members.length > 0 && members.every((c) => c.State === "running"), members.some((c) => c.State === "running"))}
                     </div>}
                   </header>
@@ -1425,7 +1335,7 @@ const moduleDefinition = {
   id: "containers",
   title: tr("title"),
   path: "/containers",
-  routes: ["apps", "containers", "containers/:id/:view", "containers/:id", "images", "networks", "volumes", "tasks"],
+  routes: ["apps", "containers", "containers/:id/:view", "containers/:id", "projects", "projects/create/new", "projects/:id", "projects/:id/edit", "images", "networks", "volumes", "tasks"],
   icon: mdiDocker,
   component: ModulePage,
   backgroundIndicator: Background,
