@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 )
 
 type planImage struct {
@@ -82,28 +83,10 @@ func (e *Engine) resolveProjectImages(ctx context.Context, job string, images []
 	if err != nil {
 		return nil, err
 	}
-	var failures []error
-	for _, image := range images {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		switch image.Status {
-		case "compatible":
-			continue
-		case "missing":
-			e.stage(job, "Checking registry: "+image.Reference)
-			remote, err := e.docker.RemotePlatform(ctx, image.Reference)
-			if err != nil {
-				failures = append(failures, fmt.Errorf("%s: %w", image.Reference, err))
-				continue
-			}
-			if remote.Status != "incompatible" {
-				continue
-			}
-		}
-		failures = append(failures, fmt.Errorf("%s: %s", image.Reference, msgImageIncompatible))
-	}
-	if err := errors.Join(failures...); err != nil {
+	registryCtx, cancel := context.WithTimeout(ctx, time.Minute)
+	err = e.checkProjectRegistries(registryCtx, job, images)
+	cancel()
+	if err != nil {
 		return nil, err
 	}
 	for _, image := range images {
@@ -134,4 +117,31 @@ func (e *Engine) resolveProjectImages(ctx context.Context, job string, images []
 		ids[image.Reference] = local.ID
 	}
 	return ids, nil
+}
+
+func (e *Engine) checkProjectRegistries(ctx context.Context, job string, images []planImage) error {
+	var failures []error
+	for _, image := range images {
+
+		switch image.Status {
+		case "compatible":
+			continue
+		case "missing":
+			if err := ctx.Err(); err != nil {
+				failures = append(failures, fmt.Errorf("%s: registry check incomplete: %w", image.Reference, err))
+				continue
+			}
+			e.stage(job, "Checking registry: "+image.Reference)
+			remote, err := e.docker.RemotePlatform(ctx, image.Reference)
+			if err != nil {
+				failures = append(failures, fmt.Errorf("%s: %w", image.Reference, err))
+				continue
+			}
+			if remote.Status != "incompatible" {
+				continue
+			}
+		}
+		failures = append(failures, fmt.Errorf("%s: %s", image.Reference, msgImageIncompatible))
+	}
+	return errors.Join(failures...)
 }

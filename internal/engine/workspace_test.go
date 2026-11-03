@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -156,5 +157,18 @@ func TestComposeCannotReserveHostDevices(t *testing.T) {
 	}
 	if err := validateCompose(config); err == nil {
 		t.Fatal("accepted a host device reservation")
+	}
+}
+
+func TestExpiredRegistryPhaseReportsUncheckedImages(t *testing.T) {
+	e, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = e.checkProjectRegistries(ctx, "qa", []planImage{{Reference: "one", Status: "missing"}, {Reference: "two", Status: "missing"}})
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "one: registry check incomplete") || !strings.Contains(err.Error(), "two: registry check incomplete") {
+		t.Fatal(err)
 	}
 }
