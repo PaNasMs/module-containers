@@ -60,6 +60,7 @@
   "confirmRemove": "Remove this object?",
   "removeHint": "Application removal stops its containers and removes its project network. Named volumes and host folders are preserved. A volume deletion permanently deletes its data.",
   "confirmStop": "Stop this application or container?",
+  "restartHint": "Its services will stop briefly and then start again.",
   "stopHint": "Its services will be temporarily unavailable.",
   "submitting": "Submitting operation…",
   "accepted": "Operation started in the background",

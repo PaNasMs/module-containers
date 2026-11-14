@@ -320,15 +320,7 @@ function Confirmation({
   return (
     <Modal
       compact
-      title={tr(
-        moving
-          ? "move"
-          : recovering
-            ? "recover"
-            : isRemove
-              ? "confirmRemove"
-              : "confirmStop",
-      )}
+      title={`${actionLabel(a.action)} · ${name}`}
       busy={busy}
       close={onClose}
       footer={
@@ -340,15 +332,7 @@ function Confirmation({
             className={isRemove ? "danger" : "primary"}
             onClick={() => void submit()}
           >
-            {tr(
-              moving
-                ? "move"
-                : recovering
-                  ? "recover"
-                  : isRemove
-                    ? "remove"
-                    : "apply",
-            )}
+            {actionLabel(a.action)} · {name}
           </Button>
         </>
       }
@@ -370,7 +354,9 @@ function Confirmation({
                     : a.action === "project.remove"
                       ? "applicationWarning"
                       : "resourceWarning"
-                : "stopHint",
+                : a.action.endsWith(".restart")
+                  ? "restartHint"
+                  : "stopHint",
         )}
       </p>
       {error && <Notice error>{error}</Notice>}
